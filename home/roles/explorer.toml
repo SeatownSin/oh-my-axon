@@ -1,5 +1,0 @@
-# oh-my-axon role: explorer
-# Read-only codebase recon. Spawned via the task tool with subagent_type = "explorer".
-description = "Read-only codebase recon: locates the files, patterns, and constraints relevant to a task and returns a structured report with file:line references. Cannot edit files or run commands."
-default_capability_mode = "read-only"
-prompt_file = "prompts/explorer.md"

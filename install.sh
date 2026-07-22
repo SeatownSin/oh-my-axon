@@ -24,7 +24,7 @@ uninstall() {
     done
     rm -f "$MANIFEST"
     # Prune now-empty directories we may have created (ignore failures).
-    for d in skills/ultrawork skills/plan hooks/bin hooks roles/prompts roles personas; do
+    for d in skills/ultrawork skills/plan hooks/bin hooks agents personas; do
         rmdir "$AXON_HOME/$d" 2>/dev/null || true
     done
     echo "oh-my-axon: uninstalled from $AXON_HOME."
@@ -90,7 +90,7 @@ Next steps:
      (LM Studio/Ollama/llama.cpp/vLLM). Hand config: see config/config.toml.snippet.
   2. Try it:   /ultrawork <task>     full explore->plan->implement->verify
                /plan <task>          plan only, saved to .axon/plans/
-  3. Roles land in ~/.axon/roles (explorer, planner, executor, reviewer),
+  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer),
      personas in ~/.axon/personas (concise, thorough) — usable from the task
      tool in any session.
 

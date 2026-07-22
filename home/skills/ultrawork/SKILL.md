@@ -2,7 +2,7 @@
 name: ultrawork
 description: >
   Orchestrated deep work: explore -> plan -> implement -> verify using the
-  oh-my-axon roles (explorer, planner, executor, reviewer). Use when the user
+  oh-my-axon agents (scout, architect, executor, reviewer). Use when the user
   writes "ultrawork" or "ulw" anywhere in their message, invokes
   "/ultrawork <task>", or asks to run an existing plan file from .axon/plans/.
 metadata:
@@ -14,7 +14,9 @@ metadata:
 You are the **orchestrator**. You do not implement anything yourself — you
 scope the task, drive subagents through a pipeline, persist the plan, and
 verify the result. All heavy lifting happens in subagents spawned with the
-`task` tool using the oh-my-axon roles.
+`task` tool using the oh-my-axon agents: `scout`, `architect`, `executor`,
+`reviewer`. Use these EXACT names — do not substitute the built-in types
+`explore` or `plan`.
 
 ## Usage
 
@@ -37,31 +39,31 @@ ask the user now. Otherwise never stop mid-pipeline to ask.
 
 ## Phase 1 — Explore
 
-Spawn **one** explorer (two in parallel with `run_in_background: true` only
+Spawn **one** scout (two in parallel with `run_in_background: true` only
 if the task clearly spans two unrelated areas — never more than two):
 
-- `subagent_type`: `"explorer"`
+- `subagent_type`: `"scout"`
 - `description`: `"Recon: <topic>"`
 - `prompt`: the full task statement, verbatim, plus any file paths or error
-  messages the user supplied. The explorer sees nothing from this
+  messages the user supplied. The scout sees nothing from this
   conversation — the prompt must be self-contained.
 
 Wait for completion (`wait_tasks` with `mode: "wait_all"` if backgrounded).
 
 ## Phase 2 — Plan
 
-Spawn one planner:
+Spawn one architect:
 
-- `subagent_type`: `"planner"`
+- `subagent_type`: `"architect"`
 - `description`: `"Plan: <topic>"`
-- `prompt`: the task statement + the explorer report(s), pasted in full.
+- `prompt`: the task statement + the scout report(s), pasted in full.
 
 Save the returned plan yourself to `.axon/plans/<yyyy-mm-dd>-<slug>.md` in
 the repo (create the directory if needed; get the date from the system, e.g.
 `date +%F`). Tell the user the path.
 
 If the plan has a `## Needs decision` section, surface it to the user before
-implementing — with the planner's recommended default so they can just say
+implementing — with the architect's recommended default so they can just say
 "go".
 
 ## Phase 3 — Implement
@@ -114,7 +116,7 @@ Then:
 
 - Every subagent prompt must be **self-contained**: subagents share no
   memory with you or each other. Paste what they need; reference nothing.
-- But paste only what they need: the explorer gets the task, not your
+- But paste only what they need: the scout gets the task, not your
   musings; an executor gets its one item, not the whole plan.
 - Cap concurrency at 2 subagents. Sequential is the default, not a fallback.
 - If a subagent returns garbage or ignores its output format, respawn it

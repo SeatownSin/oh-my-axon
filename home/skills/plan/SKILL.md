@@ -2,7 +2,7 @@
 name: plan
 description: >
   Interactive planning session: interview the user, recon the codebase with
-  an explorer subagent, and save a reviewed work plan to .axon/plans/ without
+  a scout subagent, and save a reviewed work plan to .axon/plans/ without
   implementing anything. Use on "/plan <task>" or when the user asks to
   "plan this out" / "make a plan" without wanting changes yet.
 metadata:
@@ -20,19 +20,21 @@ Produce a plan the user can execute later (typically with
    approach, what "done" means — ask the user now, in one batch of at most
    3 questions. If it's already concrete, skip straight to recon.
 
-2. **Recon.** Spawn one explorer via the `task` tool:
-   - `subagent_type`: `"explorer"`
+2. **Recon.** Spawn one scout via the `task` tool (EXACTLY the name
+   "scout", not the built-in "explore"):
+   - `subagent_type`: `"scout"`
    - `description`: `"Recon: <topic>"`
    - `prompt`: the task + the user's interview answers, self-contained.
 
-3. **Draft.** Spawn one planner:
-   - `subagent_type`: `"planner"`
+3. **Draft.** Spawn one architect (EXACTLY "architect", not the built-in
+   "plan"):
+   - `subagent_type`: `"architect"`
    - `description`: `"Plan: <topic>"`
-   - `prompt`: task + interview answers + full explorer report.
+   - `prompt`: task + interview answers + full scout report.
 
-4. **Sanity-check the draft yourself** against the explorer report: every
+4. **Sanity-check the draft yourself** against the scout report: every
    file path in the plan must appear in the report or be one you verified
-   exists. Kick clearly broken items back to the planner once with a note.
+   exists. Kick clearly broken items back to the architect once with a note.
 
 5. **Save** to `.axon/plans/<yyyy-mm-dd>-<slug>.md` (create the directory if
    needed; get the date from the system, e.g. `date +%F`).

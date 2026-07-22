@@ -24,7 +24,7 @@ if ($Uninstall) {
         if (Test-Path $f) { Remove-Item -Force $f }
     }
     Remove-Item -Force $Manifest
-    foreach ($d in 'skills\ultrawork', 'skills\plan', 'hooks\bin', 'hooks', 'roles\prompts', 'roles', 'personas') {
+    foreach ($d in 'skills\ultrawork', 'skills\plan', 'hooks\bin', 'hooks', 'agents', 'personas') {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }
@@ -87,7 +87,7 @@ Next steps:
      (LM Studio/Ollama/llama.cpp/vLLM). Hand config: see config/config.toml.snippet.
   2. Try it:   /ultrawork <task>     full explore->plan->implement->verify
                /plan <task>          plan only, saved to .axon/plans/
-  3. Roles land in ~/.axon/roles (explorer, planner, executor, reviewer),
+  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer),
      personas in ~/.axon/personas (concise, thorough) — usable from the task
      tool in any session.
 

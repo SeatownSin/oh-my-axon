@@ -12,9 +12,9 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 
 | Piece | Where it lands | What it does |
 |---|---|---|
-| **4 subagent roles** | `~/.axon/roles/` | `explorer` (read-only recon), `planner` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit) — each with a tuned prompt and least-privilege capability mode |
+| **4 subagents** | `~/.axon/agents/` | `scout` (read-only recon), `architect` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit) — each with a tuned prompt and least-privilege capability mode. Named to never collide with the built-in `explore`/`plan` types, which small local models otherwise confuse |
 | **2 personas** | `~/.axon/personas/` | `concise` (small-context-friendly output), `thorough` (skeptical verification passes) |
-| **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the roles, persisting the plan to `.axon/plans/` in your repo |
+| **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
@@ -53,8 +53,8 @@ ulw fix the flaky watcher test                         # same, inline trigger
 /ultrawork run .axon/plans/2026-07-22-config-loader.md # execute a saved plan
 ```
 
-The roles are also usable directly from any session via the task tool
-(`subagent_type: "explorer"`, persona `"concise"`, etc.) — `/ultrawork` is
+The agents are also usable directly from any session via the task tool
+(`subagent_type: "scout"`, persona `"concise"`, etc.) — `/ultrawork` is
 just the curated way to drive them.
 
 ## Why local models change the design
@@ -63,11 +63,14 @@ just the curated way to drive them.
   an executor gets exactly one work item, never the whole plan.
 - **Conservative fan-out**: concurrency is capped at 2; sequential is the
   default, not the fallback.
-- **One model per role**: Axon resolves one model per session/role (no
-  fallback chains), so roles inherit your default model unless you set
-  `model = "..."` in a role's toml.
-- **Format discipline**: role prompts demand fixed output shapes, which
+- **One model per agent**: Axon resolves one model per session/agent (no
+  fallback chains), so agents inherit your default model unless you set
+  `model:` in an agent's frontmatter.
+- **Format discipline**: agent prompts demand fixed output shapes, which
   small models follow far more reliably than open-ended asks.
+- **Collision-free names**: `scout`/`architect` instead of anything
+  resembling the built-in `explore`/`plan` subagent types — a 9B model
+  will substitute the shorter name if you let it.
 
 ## Privacy stance
 
@@ -80,7 +83,7 @@ secret-scan hook runs entirely locally. With only local models configured,
 
 ```
 home/               mirrors what lands in ~/.axon/
-  roles/            *.toml + prompts/*.md
+  agents/           *.md (YAML frontmatter + system prompt body)
   personas/         *.toml
   skills/           ultrawork/, plan/
   hooks/            secret-scan.json + bin/ (sh + ps1)

@@ -1,0 +1,45 @@
+# oh-my-axon — local-model config snippet for ~/.axon/config.toml
+#
+# Axon's first-run wizard auto-detects local servers and writes this for you,
+# so you usually don't need this file. It exists as a reference for hand
+# configuration. Pick ONE [model.*] block, adjust, and append to your
+# ~/.axon/config.toml (the installer never touches your config).
+
+[models]
+default = "local"
+# Reasoning effort default for all models: "low" | "medium" | "high".
+# Small local models usually do best at "low" or "medium".
+# default_reasoning_effort = "medium"
+
+# ── LM Studio ────────────────────────────────────────────────────────────
+[model.local]
+model = "qwen2.5-coder-32b-instruct"      # id shown by `curl localhost:1234/v1/models`
+base_url = "http://localhost:1234/v1"
+name = "LM Studio (local)"
+context_window = 32768                    # match the context you loaded the model with!
+# Loopback endpoints are auto no-auth: no key needed, none sent.
+
+# ── Ollama ───────────────────────────────────────────────────────────────
+# [model.local]
+# model = "qwen2.5-coder:32b"
+# base_url = "http://localhost:11434/v1"
+# name = "Ollama (local)"
+# context_window = 32768
+
+# ── A model server elsewhere on your LAN ─────────────────────────────────
+# [model.lan]
+# model = "llama-3.1-70b"
+# base_url = "http://192.168.1.50:8080/v1"
+# name = "LAN model"
+# no_auth = true                          # non-loopback needs this explicitly
+# context_window = 131072
+
+# ── Fully offline ────────────────────────────────────────────────────────
+# With only local models configured Axon makes no network requests at
+# startup; this also suppresses the optional remote model-catalog fetch:
+[features]
+remote_fetch = false
+
+# IMPORTANT: context_window defaults to 200,000 when omitted. For local
+# models ALWAYS set it to the real loaded context, or auto-compaction will
+# never trigger and long sessions will overflow the server.

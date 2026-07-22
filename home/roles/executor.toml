@@ -1,0 +1,5 @@
+# oh-my-axon role: executor
+# Full-access implementation agent. Spawned via the task tool with subagent_type = "executor".
+description = "Implementation agent with full access: implements exactly one work item from a plan, runs the checks named in its acceptance criteria, and reports what changed. Give it one item at a time."
+default_capability_mode = "all"
+prompt_file = "prompts/executor.md"

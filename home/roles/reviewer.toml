@@ -1,0 +1,6 @@
+# oh-my-axon role: reviewer
+# Review agent: reads code and runs checks, but cannot edit. Spawned via the task
+# tool with subagent_type = "reviewer".
+description = "Verification agent: reviews a diff against its plan, runs tests/builds, and returns a verdict with concrete findings. Can execute commands but cannot edit files."
+default_capability_mode = "execute"
+prompt_file = "prompts/reviewer.md"

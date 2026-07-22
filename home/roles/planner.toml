@@ -1,0 +1,5 @@
+# oh-my-axon role: planner
+# Read-only planning agent. Spawned via the task tool with subagent_type = "planner".
+description = "Read-only planning agent: turns a task plus recon findings into a concrete, ordered work plan with per-item acceptance criteria. Writes nothing; returns the plan as text for the orchestrator to save."
+default_capability_mode = "read-only"
+prompt_file = "prompts/planner.md"

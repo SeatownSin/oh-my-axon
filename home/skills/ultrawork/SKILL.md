@@ -18,6 +18,21 @@ verify the result. All heavy lifting happens in subagents spawned with the
 `reviewer`. Use these EXACT names — do not substitute the built-in types
 `explore` or `plan`.
 
+**Two iron rules (violating either one destroys the pipeline):**
+
+1. **You never read whole source files and never edit files.** In every
+   phase, reading and editing happen inside subagents. If you are about to
+   call a file-edit tool, stop and spawn an executor instead. If you need
+   to know what a file contains, a scout already told you or an executor
+   will find out. Your own transcript is the scarcest resource in the run —
+   every file you paste into it brings compaction closer.
+2. **The saved plan file is the durable state of the run.** Save it the
+   moment the architect returns, before spawning anything else. If your
+   context ever gets compacted (you notice a summary replacing your
+   history), do NOT re-explore: re-read the plan file from `.axon/plans/`,
+   check `git status` to see which items already landed, and resume at the
+   first unfinished item.
+
 ## Usage
 
 - `/ultrawork <task>` — full pipeline on the task.
@@ -29,9 +44,9 @@ verify the result. All heavy lifting happens in subagents spawned with the
 
 Restate the task in one or two sentences. Then pick a scale:
 
-- **small** — one obvious file/change, no design choices: skip Phases 1–2,
-  do it directly yourself, then run Phase 4 with a reviewer. Don't burn
-  subagents on trivia.
+- **small** — one obvious file/change, no design choices: skip Phases 1–2
+  and hand the whole task to a single executor as one work item (you still
+  do not edit anything yourself), then run Phase 4 with a reviewer.
 - **normal** — everything else: run the full pipeline.
 
 If the task is ambiguous in a way that changes what you'd build (not how),
@@ -58,9 +73,11 @@ Spawn one architect:
 - `description`: `"Plan: <topic>"`
 - `prompt`: the task statement + the scout report(s), pasted in full.
 
-Save the returned plan yourself to `.axon/plans/<yyyy-mm-dd>-<slug>.md` in
-the repo (create the directory if needed; get the date from the system, e.g.
-`date +%F`). Tell the user the path.
+Save the returned plan to `.axon/plans/<yyyy-mm-dd>-<slug>.md` in the repo
+**immediately — this is not optional and not deferrable** (create the
+directory if needed; get the date from the system, e.g. `date +%F`; writing
+this one file is the single exception to iron rule 1). Tell the user the
+path. From here on the plan file, not your memory, is the source of truth.
 
 If the plan has a `## Needs decision` section, surface it to the user before
 implementing — with the architect's recommended default so they can just say
@@ -120,5 +137,11 @@ Then:
   musings; an executor gets its one item, not the whole plan.
 - Cap concurrency at 2 subagents. Sequential is the default, not a fallback.
 - If a subagent returns garbage or ignores its output format, respawn it
-  once with a sharper, shorter prompt. If it fails twice, do that piece of
-  work yourself and note it in the final report.
+  once with a sharper, shorter prompt. If it fails twice, simplify the work
+  item (split it, or reduce it to the smallest change that satisfies its
+  acceptance) and try one final executor — never absorb the work into your
+  own session.
+- Watch your own context. Skim subagent reports, keep only their headline
+  facts in play, and lean on the plan file instead of re-pasting earlier
+  phases. An orchestrator that triggers compaction has already failed —
+  the run only survives it because the plan file is on disk.

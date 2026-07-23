@@ -38,8 +38,9 @@ cd oh-my-axon; .\install.ps1
 
 The installer copies files into `$AXON_HOME` (default `~/.axon`), backs up
 anything it would overwrite, records a manifest, and **never touches your
-`config.toml`**. Uninstall cleanly with `./install.sh --uninstall` /
-`.\install.ps1 -Uninstall`.
+`config.toml`**. Preview everything it would do without writing a byte via
+`./install.sh --dry-run` / `.\install.ps1 -DryRun`. Uninstall cleanly with
+`./install.sh --uninstall` / `.\install.ps1 -Uninstall`.
 
 Windows and WSL are separate installs (separate home dirs) — run the
 installer in each environment you use Axon from.

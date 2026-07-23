@@ -2,6 +2,7 @@
 # oh-my-axon installer (Linux / WSL / macOS).
 #
 #   ./install.sh              install into $AXON_HOME (default ~/.axon)
+#   ./install.sh --dry-run    print what would be installed; write nothing
 #   ./install.sh --uninstall  remove exactly what a previous install put there
 #
 # The installer only ever writes files listed in its manifest and backs up
@@ -36,6 +37,23 @@ uninstall() {
 if [ ! -d "$SRC_DIR/home" ]; then
     echo "oh-my-axon: cannot find $SRC_DIR/home — run from a checkout." >&2
     exit 1
+fi
+
+# --dry-run: report what an install would do, then exit without writing
+# anything — no copies, no manifest, no backup dir, no chmod.
+if [ "${1:-}" = "--dry-run" ]; then
+    echo "oh-my-axon $OMA_VERSION dry run — nothing will be written to $AXON_HOME"
+    (cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' | sed 's|^\./||') |
+    while IFS= read -r rel; do
+        echo "  would install: $rel"
+        dest="$AXON_HOME/$rel"
+        if [ -f "$dest" ] && ! cmp -s "$SRC_DIR/home/$rel" "$dest"; then
+            echo "  would back up: $rel"
+        fi
+    done
+    echo "  would install: hooks/secret-scan.json (templated for this platform)"
+    echo "  would write:   .oh-my-axon-manifest"
+    exit 0
 fi
 
 BACKUP_DIR="$AXON_HOME/oh-my-axon-backup-$(date +%Y%m%d-%H%M%S)"

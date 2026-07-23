@@ -1,12 +1,13 @@
 # oh-my-axon installer (Windows).
 #
 #   .\install.ps1              install into $env:AXON_HOME (default ~\.axon)
+#   .\install.ps1 -DryRun      print what would be installed; write nothing
 #   .\install.ps1 -Uninstall   remove exactly what a previous install put there
 #
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 [CmdletBinding()]
-param([switch]$Uninstall)
+param([switch]$Uninstall, [switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
 $OmaVersion = '0.1.0'
@@ -35,6 +36,24 @@ if ($Uninstall) {
 $HomeSrc = Join-Path $SrcDir 'home'
 if (-not (Test-Path $HomeSrc)) {
     Write-Error "oh-my-axon: cannot find $HomeSrc — run from a checkout."
+}
+
+# -DryRun: report what an install would do, then exit without writing
+# anything — no copies, no manifest, no backup dir.
+if ($DryRun) {
+    Write-Host "oh-my-axon $OmaVersion dry run — nothing will be written to $AxonHome"
+    Get-ChildItem $HomeSrc -Recurse -File | Where-Object { $_.Name -ne 'secret-scan.json' } | ForEach-Object {
+        $rel = $_.FullName.Substring($HomeSrc.Length + 1) -replace '\\', '/'
+        Write-Host "  would install: $rel"
+        $dest = Join-Path $AxonHome ($rel -replace '/', '\')
+        if ((Test-Path $dest) -and
+            ((Get-FileHash $dest).Hash -ne (Get-FileHash $_.FullName).Hash)) {
+            Write-Host "  would back up: $rel"
+        }
+    }
+    Write-Host "  would install: hooks/secret-scan.json (templated for this platform)"
+    Write-Host "  would write:   .oh-my-axon-manifest"
+    exit 0
 }
 
 $BackupDir = Join-Path $AxonHome ("oh-my-axon-backup-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))

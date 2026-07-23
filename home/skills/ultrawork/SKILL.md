@@ -32,6 +32,10 @@ verify the result. All heavy lifting happens in subagents spawned with the
    history), do NOT re-explore: re-read the plan file from `.axon/plans/`,
    check `git status` to see which items already landed, and resume at the
    first unfinished item.
+3. **Never end your turn between phases.** Announcing a phase and stopping
+   is a failed run: every phase announcement must be followed immediately,
+   in the same turn, by that phase's tool calls. You end your turn exactly
+   once — after the final report.
 
 ## Usage
 

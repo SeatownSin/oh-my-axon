@@ -136,7 +136,13 @@ Then:
 - Path to the saved plan file.
 - Anything left open (surviving findings, deferred items, plan deviations).
 
-## Local-model rules (this distribution is tuned for small contexts)
+## Context and delegation rules
+
+These defaults are safe for every model class. With a frontier-class local
+model (100B+, 100k+ real context) you may parallelize independent
+executors (worktree isolation, still max 2–3) and pass fuller reports
+between phases; with small models (≤14B), tighten instead — smallest
+possible prompts, never parallel.
 
 - Every subagent prompt must be **self-contained**: subagents share no
   memory with you or each other. Paste what they need; reference nothing.

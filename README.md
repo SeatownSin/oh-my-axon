@@ -12,7 +12,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 
 | Piece | Where it lands | What it does |
 |---|---|---|
-| **4 subagents** | `~/.axon/agents/` | `scout` (read-only recon), `architect` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit) — each with a tuned prompt and least-privilege capability mode. Named to never collide with the built-in `explore`/`plan` types, which small local models otherwise confuse |
+| **4 subagents** | `~/.axon/agents/` | `scout` (read-only recon), `architect` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit) — each with a tuned prompt and least-privilege capability mode, named to never collide with the built-in `explore`/`plan` types |
 | **2 personas** | `~/.axon/personas/` | `concise` (small-context-friendly output), `thorough` (skeptical verification passes) |
 | **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |
@@ -58,20 +58,42 @@ The agents are also usable directly from any session via the task tool
 (`subagent_type: "scout"`, persona `"concise"`, etc.) — `/ultrawork` is
 just the curated way to drive them.
 
-## Why local models change the design
+## Tune it to your model class
 
-- **Small contexts**: every subagent prompt is self-contained and minimal —
-  an executor gets exactly one work item, never the whole plan.
-- **Conservative fan-out**: concurrency is capped at 2; sequential is the
-  default, not the fallback.
-- **One model per agent**: Axon resolves one model per session/agent (no
-  fallback chains), so agents inherit your default model unless you set
-  `model:` in an agent's frontmatter.
-- **Format discipline**: agent prompts demand fixed output shapes, which
-  small models follow far more reliably than open-ended asks.
-- **Collision-free names**: `scout`/`architect` instead of anything
-  resembling the built-in `explore`/`plan` subagent types — a 9B model
-  will substitute the shorter name if you let it.
+Local doesn't mean small. oh-my-axon's defaults are safe on anything, but
+what you should change depends on the class of model behind it. Two
+universals first: set `context_window` in `~/.axon/config.toml` to the
+server's **real** loaded/served context (never trust the 200k default —
+auto-compaction triggers at 85% of this number), and give each agent its
+own `model:` in its frontmatter when you have more than one server (Axon
+resolves one model per agent; there are no fallback chains).
+
+**Frontier-local — 100B+ MoE on a DGX Spark / Mac Studio class box**
+(Nemotron 3 Super 120B, Laguna S 2.1, …)
+- Serve at 256k and set `context_window` to match (e.g. `262144`).
+- Run the full pipeline; parallel executors with `isolation: "worktree"`
+  are fine for independent work items.
+- Split agents across servers if you have them: big model for
+  executor/reviewer, something fast for scout.
+- For headless/automation runs, launch with `--always-approve` — an
+  unattended pipeline that hits a permission prompt is a dead run.
+
+**Mid — 14–70B dense or mid-size MoE**
+- Ship defaults as-is: full pipeline, sequential executors.
+- Set `context_window` honestly (32–131k); long ultrawork runs will
+  actually reach the 85% compaction line, and recovery depends on the
+  saved plan file.
+
+**Small — ≤14B**
+- This class can plan but reliably fumbles exact-match edits and
+  long-transcript rule-following; the skill's "iron rules" exist because
+  of it. Keep `/ultrawork` for small scopes, prefer `/plan` + running the
+  work items yourself, apply the `concise` persona liberally, and never
+  parallelize.
+
+(The `scout`/`architect` names are deliberately nothing like the built-in
+`explore`/`plan` subagent types — models of every size substitute the
+shorter familiar name when the names are near-identical.)
 
 ## Privacy stance
 

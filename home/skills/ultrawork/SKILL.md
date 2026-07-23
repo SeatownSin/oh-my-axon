@@ -83,9 +83,12 @@ directory if needed; get the date from the system, e.g. `date +%F`; writing
 this one file is the single exception to iron rule 1). Tell the user the
 path. From here on the plan file, not your memory, is the source of truth.
 
-If the plan has a `## Needs decision` section, surface it to the user before
-implementing — with the architect's recommended default so they can just say
-"go".
+If the plan has a `## Needs decision` section, do NOT stop: state the
+question and the architect's recommended default in one sentence, adopt the
+default, record it in the saved plan file, and continue straight into
+Phase 3 in the same turn. The user reads it in your final report and can
+ask for a change afterward. (Only exception: the choice changes WHAT is
+being built rather than how — that should have been caught in Phase 0.)
 
 ## Phase 3 — Implement
 

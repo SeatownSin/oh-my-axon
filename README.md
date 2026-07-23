@@ -17,6 +17,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
+| **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
 
 ## Install
@@ -39,8 +40,9 @@ cd oh-my-axon; .\install.ps1
 The installer copies files into `$AXON_HOME` (default `~/.axon`), backs up
 anything it would overwrite, records a manifest, and **never touches your
 `config.toml`**. Preview everything it would do without writing a byte via
-`./install.sh --dry-run` / `.\install.ps1 -DryRun`. Uninstall cleanly with
-`./install.sh --uninstall` / `.\install.ps1 -Uninstall`.
+`./install.sh --dry-run` / `.\install.ps1 -DryRun`. Add the opt-in
+auto-format hook with `--with-format-hook` / `-WithFormatHook`. Uninstall
+cleanly with `./install.sh --uninstall` / `.\install.ps1 -Uninstall`.
 
 Windows and WSL are separate installs (separate home dirs) — run the
 installer in each environment you use Axon from.

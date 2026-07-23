@@ -6,7 +6,7 @@
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 [CmdletBinding()]
-param([switch]$Uninstall)
+param([switch]$Uninstall, [switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
 $OmaVersion = '0.1.0'
@@ -29,6 +29,39 @@ if ($Uninstall) {
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }
     Write-Host "oh-my-axon: uninstalled from $AxonHome."
+    exit 0
+}
+
+if ($DryRun) {
+    Write-Host "oh-my-axon $OmaVersion"
+    $HomeSrc = Join-Path $SrcDir 'home'
+    if (-not (Test-Path $HomeSrc)) {
+        Write-Error "oh-my-axon: cannot find $HomeSrc — run from a checkout."
+        exit 1
+    }
+
+    # 1. Everything under home\, except the hook descriptor (templated below).
+    Get-ChildItem $HomeSrc -Recurse -File | Where-Object { $_.Name -ne 'secret-scan.json' } | ForEach-Object {
+        $rel = $_.FullName.Substring($HomeSrc.Length + 1)
+        $dest = Join-Path $AxonHome $rel
+        if (Test-Path $dest) {
+            Write-Host "Would back up: $rel"
+        }
+        Write-Host "Would install: $rel"
+    }
+
+    # 2. Hook descriptor: a command *string* runs via the shell with cwd at the
+    #    workspace root, so it must carry an absolute path to the script.
+    #    Forward slashes keep the JSON free of escaping headaches.
+    $scriptPath = (Join-Path $AxonHome 'hooks\bin\secret-scan.ps1') -replace '\\', '/'
+    $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    $jsonSrc = Join-Path $HomeSrc 'hooks\secret-scan.json'
+    $hookDest = Join-Path $AxonHome 'hooks\secret-scan.json'
+    if (Test-Path $hookDest) {
+        Write-Host "Would back up: hooks\secret-scan.json"
+    }
+    Write-Host "Would install: hooks\secret-scan.json"
+
     exit 0
 }
 

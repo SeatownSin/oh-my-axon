@@ -8,6 +8,7 @@
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 set -eu
+10→
 OMA_VERSION="0.1.0"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
@@ -49,7 +50,7 @@ if [ ! -d "$SRC_DIR/home" ]; then
     echo "oh-my-axon: cannot find $SRC_DIR/home — run from a checkout." >&2
     exit 1
 fi
-
+40→
 if [ "$DRY_RUN" = false ]; then
     BACKUP_DIR="$AXON_HOME/oh-my-axon-backup-$(date +%Y%m%d-%H%M%S)"
     backed_up=0

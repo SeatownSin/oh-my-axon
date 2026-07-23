@@ -33,6 +33,9 @@ uninstall() {
 
 [ "${1:-}" = "--uninstall" ] && uninstall
 
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
 if [ ! -d "$SRC_DIR/home" ]; then
     echo "oh-my-axon: cannot find $SRC_DIR/home — run from a checkout." >&2
     exit 1
@@ -45,13 +48,22 @@ installed=""
 install_file() {
     # $1 = source file, $2 = path relative to AXON_HOME
     dest="$AXON_HOME/$2"
-    mkdir -p "$(dirname "$dest")"
-    if [ -f "$dest" ] && ! cmp -s "$1" "$dest"; then
-        mkdir -p "$BACKUP_DIR/$(dirname "$2")"
-        cp -p "$dest" "$BACKUP_DIR/$2"
-        backed_up=1
+    if [ "$DRY_RUN" = 1 ]; then
+        echo "would install: $2"
+        if [ -f "$dest" ] && ! cmp -s "$1" "$dest"; then
+            echo "would back up: $2 -> $BACKUP_DIR/$2"
+            backed_up=1
+        fi
+    else
+        mkdir -p "$(dirname "$dest")"
+        if [ -f "$dest" ] && ! cmp -s "$1" "$dest"; then
+            mkdir -p "$BACKUP_DIR/$(dirname "$2")"
+            cp -p "$dest" "$BACKUP_DIR/$2"
+            backed_up=1
+        fi
+        cp "$1" "$dest"
     fi
-    cp "$1" "$dest"
+    # Accumulated for the manifest path (gated in dry-run).
     installed="$installed$2
 "
 }
@@ -67,19 +79,30 @@ rm -f "$FILELIST"
 
 # 2. Hook descriptor: point the command at the POSIX script (relative paths
 #    in hook JSON resolve from the descriptor's own directory).
-mkdir -p "$AXON_HOME/hooks"
-sed 's|__OMA_SECRET_SCAN_CMD__|bin/secret-scan.sh|' \
-    "$SRC_DIR/home/hooks/secret-scan.json" > "$AXON_HOME/hooks/secret-scan.json"
+if [ "$DRY_RUN" = 1 ]; then
+    echo "would install: hooks/secret-scan.json"
+else
+    mkdir -p "$AXON_HOME/hooks"
+    sed 's|__OMA_SECRET_SCAN_CMD__|bin/secret-scan.sh|' \
+        "$SRC_DIR/home/hooks/secret-scan.json" > "$AXON_HOME/hooks/secret-scan.json"
+fi
 installed="$installed
 hooks/secret-scan.json"
 
-chmod +x "$AXON_HOME/hooks/bin/secret-scan.sh"
+[ "$DRY_RUN" = 1 ] || chmod +x "$AXON_HOME/hooks/bin/secret-scan.sh"
 
 # 3. Manifest for clean uninstall.
+if [ "$DRY_RUN" != 1 ]; then
 {
     echo "oh-my-axon $OMA_VERSION"
     printf '%s\n' "$installed" | grep -v '^$' | sort -u
 } > "$MANIFEST"
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+    echo "oh-my-axon $OMA_VERSION"
+    exit 0
+fi
 
 echo "oh-my-axon $OMA_VERSION installed into $AXON_HOME"
 [ "$backed_up" = 1 ] && echo "  (differing existing files backed up to $BACKUP_DIR)"

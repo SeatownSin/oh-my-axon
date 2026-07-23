@@ -41,6 +41,8 @@ anything it would overwrite, records a manifest, and **never touches your
 `config.toml`**. Uninstall cleanly with `./install.sh --uninstall` /
 `.\install.ps1 -Uninstall`.
 
+Pass `--dry-run` / `-DryRun` to preview what would be installed and backed up without writing anything.
+
 Windows and WSL are separate installs (separate home dirs) — run the
 installer in each environment you use Axon from.
 

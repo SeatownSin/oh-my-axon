@@ -2,11 +2,12 @@
 #
 #   .\install.ps1              install into $env:AXON_HOME (default ~\.axon)
 #   .\install.ps1 -Uninstall   remove exactly what a previous install put there
+#   .\install.ps1 -DryRun      print what would happen without writing anything
 #
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 [CmdletBinding()]
-param([switch]$Uninstall)
+param([switch]$Uninstall, [switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
 $OmaVersion = '0.1.0'
@@ -43,6 +44,17 @@ $installed = @()
 
 function Install-OmaFile([string]$Source, [string]$Rel) {
     $dest = Join-Path $AxonHome $Rel
+    if ($script:DryRun) {
+        Write-Host "would install: $Rel"
+        if (Test-Path $dest) {
+            $bak = Join-Path $script:BackupDir $Rel
+            if ((Get-FileHash $dest).Hash -ne (Get-FileHash $Source).Hash) {
+                Write-Host "would back up: $Rel -> $bak"
+            }
+        }
+        $script:installed += $Rel
+        return
+    }
     $destDir = Split-Path $dest -Parent
     New-Item -ItemType Directory -Force $destDir | Out-Null
     if ((Test-Path $dest) -and
@@ -69,13 +81,21 @@ $scriptPath = (Join-Path $AxonHome 'hooks\bin\secret-scan.ps1') -replace '\\', '
 $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
 $jsonSrc = Join-Path $HomeSrc 'hooks\secret-scan.json'
 $hookDest = Join-Path $AxonHome 'hooks\secret-scan.json'
-New-Item -ItemType Directory -Force (Split-Path $hookDest -Parent) | Out-Null
-(Get-Content $jsonSrc -Raw) -replace '__OMA_SECRET_SCAN_CMD__', ($cmd -replace '"', '\"') |
-    Set-Content -NoNewline $hookDest
+if ($script:DryRun) {
+    Write-Host "would install: hooks\secret-scan.json"
+} else {
+    New-Item -ItemType Directory -Force (Split-Path $hookDest -Parent) | Out-Null
+    (Get-Content $jsonSrc -Raw) -replace '__OMA_SECRET_SCAN_CMD__', ($cmd -replace '"', '\"') |
+        Set-Content -NoNewline $hookDest
+}
 $installed += 'hooks\secret-scan.json'
 
 # 3. Manifest for clean uninstall (relative paths, forward slashes).
 $lines = @("oh-my-axon $OmaVersion") + ($installed | ForEach-Object { $_ -replace '\\', '/' } | Sort-Object -Unique)
+if ($script:DryRun) {
+    Write-Host "oh-my-axon $OmaVersion installed into $AxonHome (dry run — nothing written)"
+    exit 0
+}
 Set-Content -Path $Manifest -Value $lines
 
 Write-Host "oh-my-axon $OmaVersion installed into $AxonHome"

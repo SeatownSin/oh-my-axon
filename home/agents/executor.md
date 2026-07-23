@@ -37,6 +37,14 @@ nothing more.
 
 ## Rules
 
+- Edit files ONLY with the file-editing tools — never with `sed -i`, `awk`,
+  `perl -i`, heredoc rewrites, or any other shell text munging. If an exact
+  string match fails twice, re-read the region and write the whole file
+  with the write tool instead of fighting the match. Never attempt the
+  same failing edit more than twice.
+- After every edit, check `git diff --stat` for the file: if it shows large
+  unexpected deletions, you have mangled it — restore with
+  `git checkout -- <file>` and start that edit over differently.
 - Stay inside the work item's file list unless a change forces a mechanical
   ripple (imports, exports, call sites) — list any extra file under Changed.
 - Never commit; leave the working tree for the orchestrator.

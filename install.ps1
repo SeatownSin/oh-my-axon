@@ -7,7 +7,7 @@
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 [CmdletBinding()]
-param([switch]$Uninstall, [switch]$DryRun)
+param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook)
 
 $ErrorActionPreference = 'Stop'
 $OmaVersion = '0.1.0'
@@ -42,7 +42,12 @@ if (-not (Test-Path $HomeSrc)) {
 # anything — no copies, no manifest, no backup dir.
 if ($DryRun) {
     Write-Host "oh-my-axon $OmaVersion dry run — nothing will be written to $AxonHome"
-    Get-ChildItem $HomeSrc -Recurse -File | Where-Object { $_.Name -ne 'secret-scan.json' } | ForEach-Object {
+    Get-ChildItem $HomeSrc -Recurse -File | Where-Object {
+        $_.Name -ne 'secret-scan.json' -and
+        $_.Name -ne 'format-on-edit.json' -and
+        $_.Name -ne 'format-on-edit.sh' -and
+        $_.Name -ne 'format-on-edit.ps1'
+    } | ForEach-Object {
         $rel = $_.FullName.Substring($HomeSrc.Length + 1) -replace '\\', '/'
         Write-Host "  would install: $rel"
         $dest = Join-Path $AxonHome ($rel -replace '/', '\')
@@ -52,6 +57,11 @@ if ($DryRun) {
         }
     }
     Write-Host "  would install: hooks/secret-scan.json (templated for this platform)"
+    if ($WithFormatHook) {
+        Write-Host "  would install: hooks/format-on-edit.json (templated for this platform)"
+        Write-Host "  would install: hooks/bin/format-on-edit.sh"
+        Write-Host "  would install: hooks/bin/format-on-edit.ps1"
+    }
     Write-Host "  would write:   .oh-my-axon-manifest"
     exit 0
 }
@@ -75,8 +85,13 @@ function Install-OmaFile([string]$Source, [string]$Rel) {
     $script:installed += $Rel
 }
 
-# 1. Everything under home\, except the hook descriptor (templated below).
-Get-ChildItem $HomeSrc -Recurse -File | Where-Object { $_.Name -ne 'secret-scan.json' } | ForEach-Object {
+# 1. Everything under home\, except the hook descriptors (templated below).
+Get-ChildItem $HomeSrc -Recurse -File | Where-Object {
+    $_.Name -ne 'secret-scan.json' -and
+    $_.Name -ne 'format-on-edit.json' -and
+    $_.Name -ne 'format-on-edit.sh' -and
+    $_.Name -ne 'format-on-edit.ps1'
+} | ForEach-Object {
     $rel = $_.FullName.Substring($HomeSrc.Length + 1)
     Install-OmaFile $_.FullName $rel
 }
@@ -92,6 +107,21 @@ New-Item -ItemType Directory -Force (Split-Path $hookDest -Parent) | Out-Null
 (Get-Content $jsonSrc -Raw) -replace '__OMA_SECRET_SCAN_CMD__', ($cmd -replace '"', '\"') |
     Set-Content -NoNewline $hookDest
 $installed += 'hooks\secret-scan.json'
+
+if ($WithFormatHook) {
+    # 2b. Format-on-edit hook descriptor: same pattern as secret-scan, but
+    #      the command is an absolute path because it runs from workspace root.
+    $scriptPathFmt = (Join-Path $AxonHome 'hooks\bin\format-on-edit.ps1') -replace '\\', '/'
+    $cmdFmt = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPathFmt`""
+    $jsonSrcFmt = Join-Path $HomeSrc 'hooks\format-on-edit.json'
+    $hookDestFmt = Join-Path $AxonHome 'hooks\format-on-edit.json'
+    New-Item -ItemType Directory -Force (Split-Path $hookDestFmt -Parent) | Out-Null
+    (Get-Content $jsonSrcFmt -Raw) -replace '__OMA_FORMAT_CMD__', ($cmdFmt -replace '"', '\"') |
+        Set-Content -NoNewline $hookDestFmt
+    $installed += 'hooks\format-on-edit.json'
+    Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\format-on-edit.sh') 'hooks\bin\format-on-edit.sh'
+    Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\format-on-edit.ps1') 'hooks\bin\format-on-edit.ps1'
+}
 
 # 3. Manifest for clean uninstall (relative paths, forward slashes).
 $lines = @("oh-my-axon $OmaVersion") + ($installed | ForEach-Object { $_ -replace '\\', '/' } | Sort-Object -Unique)

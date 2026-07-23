@@ -32,7 +32,15 @@ uninstall() {
     exit 0
 }
 
-[ "${1:-}" = "--uninstall" ] && uninstall
+FORMAT_HOOK=0
+DRY_RUN=0
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) uninstall ;;
+        --dry-run) DRY_RUN=1 ;;
+        --with-format-hook) FORMAT_HOOK=1 ;;
+    esac
+done
 
 if [ ! -d "$SRC_DIR/home" ]; then
     echo "oh-my-axon: cannot find $SRC_DIR/home — run from a checkout." >&2
@@ -41,9 +49,9 @@ fi
 
 # --dry-run: report what an install would do, then exit without writing
 # anything — no copies, no manifest, no backup dir, no chmod.
-if [ "${1:-}" = "--dry-run" ]; then
+if [ "$DRY_RUN" = "1" ]; then
     echo "oh-my-axon $OMA_VERSION dry run — nothing will be written to $AXON_HOME"
-    (cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' | sed 's|^\./||') |
+    (cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' ! -name 'format-on-edit.json' ! -name 'format-on-edit.sh' ! -name 'format-on-edit.ps1' | sed 's|^\./||') |
     while IFS= read -r rel; do
         echo "  would install: $rel"
         dest="$AXON_HOME/$rel"
@@ -52,6 +60,11 @@ if [ "${1:-}" = "--dry-run" ]; then
         fi
     done
     echo "  would install: hooks/secret-scan.json (templated for this platform)"
+    if [ "$FORMAT_HOOK" = "1" ]; then
+        echo "  would install: hooks/format-on-edit.json (templated for this platform)"
+        echo "  would install: hooks/bin/format-on-edit.sh"
+        echo "  would install: hooks/bin/format-on-edit.ps1"
+    fi
     echo "  would write:   .oh-my-axon-manifest"
     exit 0
 fi
@@ -77,7 +90,7 @@ install_file() {
 # 1. Everything under home/, except the hook descriptor (templated below).
 #    Redirect (not pipe) into the loop so install_file's variables persist.
 FILELIST="$(mktemp)"
-(cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' | sed 's|^\./||') > "$FILELIST"
+(cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' ! -name 'format-on-edit.json' ! -name 'format-on-edit.sh' ! -name 'format-on-edit.ps1' | sed 's|^\./||') > "$FILELIST"
 while IFS= read -r rel; do
     install_file "$SRC_DIR/home/$rel" "$rel"
 done < "$FILELIST"
@@ -92,6 +105,20 @@ installed="$installed
 hooks/secret-scan.json"
 
 chmod +x "$AXON_HOME/hooks/bin/secret-scan.sh"
+
+if [ "$FORMAT_HOOK" = "1" ]; then
+    # 2b. Format-on-edit hook descriptor: same pattern as secret-scan,
+    #     command resolves to the POSIX script relative to the descriptor.
+    mkdir -p "$AXON_HOME/hooks"
+    sed 's|__OMA_FORMAT_CMD__|bin/format-on-edit.sh|' \
+        "$SRC_DIR/home/hooks/format-on-edit.json" > "$AXON_HOME/hooks/format-on-edit.json"
+    installed="$installed
+hooks/format-on-edit.json
+"
+    install_file "$SRC_DIR/home/hooks/bin/format-on-edit.sh" "hooks/bin/format-on-edit.sh"
+    install_file "$SRC_DIR/home/hooks/bin/format-on-edit.ps1" "hooks/bin/format-on-edit.ps1"
+    chmod +x "$AXON_HOME/hooks/bin/format-on-edit.sh"
+fi
 
 # 3. Manifest for clean uninstall.
 {

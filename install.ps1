@@ -136,7 +136,7 @@ Next steps:
      (LM Studio/Ollama/llama.cpp/vLLM). Hand config: see config/config.toml.snippet.
   2. Try it:   /ultrawork <task>     full explore->plan->implement->verify
                /plan <task>          plan only, saved to .axon/plans/
-  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer),
+  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer, looker),
      personas in ~/.axon/personas (concise, thorough) — usable from the task
      tool in any session.
 

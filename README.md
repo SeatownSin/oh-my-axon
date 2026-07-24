@@ -12,7 +12,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 
 | Piece | Where it lands | What it does |
 |---|---|---|
-| **4 subagents** | `~/.axon/agents/` | `scout` (read-only recon), `architect` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit) — each with a tuned prompt and least-privilege capability mode, named to never collide with the built-in `explore`/`plan` types |
+| **5 subagents** | `~/.axon/agents/` | `scout` (read-only recon), `architect` (read-only planning), `executor` (implements one work item), `reviewer` (runs checks, can't edit), `looker` (vision: reads screenshots/mockups/diagrams, transcribes visible text verbatim) — each with a tuned prompt and least-privilege capability mode, named to never collide with the built-in `explore`/`plan` types. `looker` spawns on the model named `vision`: add a `[model.vision]` entry pointing at any multimodal endpoint |
 | **2 personas** | `~/.axon/personas/` | `concise` (small-context-friendly output), `thorough` (skeptical verification passes) |
 | **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |

@@ -17,6 +17,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |
 | **`/handoff` skill** | `~/.axon/skills/handoff/` | Session-to-session memory: save verified working state (goal, state with evidence, decisions, dead ends, next steps) to `.axon/handoffs/`; `/handoff resume` verifies it against reality and continues |
+| **`/audit` skill** | `~/.axon/skills/audit/` | Whole-codebase health check: fans out read-only agents across dimensions (security, secrets, deps, dead code, error handling, tests, licensing), dedupes and ranks findings, writes a prioritized report to `.axon/audits/`. Never edits — hand fixes to `/ultrawork` after |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
@@ -111,8 +112,8 @@ secret-scan hook runs entirely locally. With only local models configured,
 home/               mirrors what lands in ~/.axon/
   agents/           *.md (YAML frontmatter + system prompt body)
   personas/         *.toml
-  skills/           ultrawork/, plan/
-  hooks/            secret-scan.json + bin/ (sh + ps1)
+  skills/           ultrawork/, plan/, handoff/, audit/
+  hooks/            secret-scan.json + format-on-edit.json + bin/ (sh + ps1)
 config/
   config.toml.snippet
 install.sh / install.ps1

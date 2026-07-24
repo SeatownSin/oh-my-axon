@@ -16,6 +16,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **2 personas** | `~/.axon/personas/` | `concise` (small-context-friendly output), `thorough` (skeptical verification passes) |
 | **`/ultrawork` skill** | `~/.axon/skills/ultrawork/` | The headline: say `ultrawork` (or `ulw`, or `/ultrawork <task>`) and Axon orchestrates explore → plan → implement → verify across the agents, persisting the plan to `.axon/plans/` in your repo |
 | **`/plan` skill** | `~/.axon/skills/plan/` | Interview → recon → saved plan, no implementation; run it later with `/ultrawork run <plan-file>` |
+| **`/handoff` skill** | `~/.axon/skills/handoff/` | Session-to-session memory: save verified working state (goal, state with evidence, decisions, dead ends, next steps) to `.axon/handoffs/`; `/handoff resume` verifies it against reality and continues |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |

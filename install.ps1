@@ -25,7 +25,7 @@ if ($Uninstall) {
         if (Test-Path $f) { Remove-Item -Force $f }
     }
     Remove-Item -Force $Manifest
-    foreach ($d in 'skills\ultrawork', 'skills\plan', 'hooks\bin', 'hooks', 'agents', 'personas') {
+    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'hooks\bin', 'hooks', 'agents', 'personas') {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }

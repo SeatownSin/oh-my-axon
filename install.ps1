@@ -1,4 +1,4 @@
-# oh-my-axon installer (Windows).
+﻿# oh-my-axon installer (Windows).
 #
 #   .\install.ps1              install into $env:AXON_HOME (default ~\.axon)
 #   .\install.ps1 -DryRun      print what would be installed; write nothing
@@ -25,7 +25,9 @@ if ($Uninstall) {
         if (Test-Path $f) { Remove-Item -Force $f }
     }
     Remove-Item -Force $Manifest
-    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'hooks\bin', 'hooks', 'agents', 'personas') {
+    # Children before parents: a directory is only removed when it is empty,
+    # so skills\* has to go before skills itself gets a chance.
+    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'skills', 'hooks\bin', 'hooks', 'agents', 'personas') {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }

@@ -25,7 +25,9 @@ uninstall() {
     done
     rm -f "$MANIFEST"
     # Prune now-empty directories we may have created (ignore failures).
-    for d in skills/ultrawork skills/plan skills/handoff skills/audit hooks/bin hooks agents personas; do
+    # Children before parents: rmdir only removes empty directories, so
+    # skills/* has to go before skills itself gets a chance.
+    for d in skills/ultrawork skills/plan skills/handoff skills/audit skills hooks/bin hooks agents personas; do
         rmdir "$AXON_HOME/$d" 2>/dev/null || true
     done
     echo "oh-my-axon: uninstalled from $AXON_HOME."

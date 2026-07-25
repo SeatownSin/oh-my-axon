@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref supersedes an in-flight run. A run marked
+# "cancelled" here is that, not a failure.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Show shellcheck version
+        run: shellcheck --version
+      # --shell=sh because every script here targets POSIX sh, not bash;
+      # without it shellcheck would happily pass bashisms the hooks cannot use.
+      - name: Lint shell scripts
+        run: |
+          shellcheck --shell=sh --severity=style \
+            install.sh \
+            tests/*.sh \
+            home/hooks/bin/*.sh
+
+  psscriptanalyzer:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Lint PowerShell scripts
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $findings = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($findings) {
+            $findings | Format-Table -AutoSize RuleName, Severity, ScriptName, Line, Message -Wrap
+            throw "PSScriptAnalyzer reported $($findings.Count) finding(s)"
+          }
+          Write-Host 'PSScriptAnalyzer: clean'
+
+  structure:
+    name: structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate agents, skills, hooks, and installer agreement
+        run: python3 tests/validate_structure.py
+
+  smoke-linux:
+    name: smoke (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # /bin/sh is dash here, which is the point: the hooks and installer are
+      # POSIX sh and must not depend on bash.
+      - name: Installer lifecycle
+        run: sh tests/smoke-install.sh
+      - name: Hook behaviour
+        run: sh tests/smoke-hooks.sh
+
+  smoke-windows:
+    name: smoke (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Installer lifecycle
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/smoke-install.ps1
+      # The hook suite deliberately invokes the scripts through Windows
+      # PowerShell 5.1, matching the command line the installer templates.
+      - name: Hook behaviour
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/smoke-hooks.ps1

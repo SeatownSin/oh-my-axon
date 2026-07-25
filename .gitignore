@@ -1,2 +1,8 @@
 *.tmp
 .installed-files.tmp
+
+# Per-session working state written by the skills themselves (/ultrawork
+# plans, /handoff notes, /audit reports). Local scratch, not distribution.
+.axon/plans/
+.axon/handoffs/
+.axon/audits/

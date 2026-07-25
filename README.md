@@ -116,13 +116,36 @@ home/               mirrors what lands in ~/.axon/
   hooks/            secret-scan.json + format-on-edit.json + bin/ (sh + ps1)
 config/
   config.toml.snippet
+tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
 ```
 
+## Development
+
+Every push is linted and smoke-tested: shellcheck over the POSIX scripts,
+PSScriptAnalyzer over the PowerShell ones, a structure check on the agent /
+skill / hook files, and a full installer lifecycle on both Ubuntu and
+Windows. The same checks run locally:
+
+```sh
+sh tests/smoke-install.sh            # dry run -> install -> backup -> uninstall
+sh tests/smoke-hooks.sh              # payload in, decision out
+python3 tests/validate_structure.py  # frontmatter, hook JSON, installer agreement
+```
+
+```powershell
+pwsh -File tests\smoke-install.ps1
+pwsh -File tests\smoke-hooks.ps1
+```
+
+The installer tests run against a throwaway `AXON_HOME` and refuse to start
+if it would resolve to a real one, so they never touch your own install. The
+hook tests run the scripts through Windows PowerShell 5.1 where it exists,
+because that is what the installed hook command line uses.
+
 ## Roadmap
 
-- auto-format PostToolUse hook (per-project formatter detection)
 - role-level model presets generated from detected local servers
-- more skills: `/handoff` (session-to-session memory), `/audit`
+- per-agent effort defaults, tuned per model class
 
 MIT — see [LICENSE](LICENSE).

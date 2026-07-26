@@ -65,12 +65,25 @@ just the curated way to drive them.
 ## Tune it to your model class
 
 Local doesn't mean small. oh-my-axon's defaults are safe on anything, but
-what you should change depends on the class of model behind it. Two
+what you should change depends on the class of model behind it. Three
 universals first: set `context_window` in `~/.axon/config.toml` to the
 server's **real** loaded/served context (never trust the 200k default —
-auto-compaction triggers at 85% of this number), and give each agent its
+auto-compaction triggers at 85% of this number), give each agent its
 own `model:` in its frontmatter when you have more than one server (Axon
-resolves one model per agent; there are no fallback chains).
+resolves one model per agent; there are no fallback chains), and — if the
+model reasons — make sure it actually returns that reasoning separately:
+
+```toml
+[model.your-reasoner]
+chat_template_kwargs = { enable_thinking = true }
+```
+
+vLLM's reasoning parsers stay inert without it and leave the whole
+chain-of-thought in the answer, where it gets stored and re-sent as history
+every turn. On a 120B local model that was the difference between 1,437 and
+153 tokens for the same conversation. Prefer `enable_thinking` over the
+`thinking` alias; agent-level `effort:` cannot substitute for it, and on a
+non-Harmony vLLM model `effort:` does nothing at all.
 
 **Frontier-local — 100B+ MoE on a DGX Spark / Mac Studio class box**
 (Nemotron 3 Super 120B, Laguna S 2.1, …)
@@ -146,6 +159,5 @@ because that is what the installed hook command line uses.
 ## Roadmap
 
 - role-level model presets generated from detected local servers
-- per-agent effort defaults, tuned per model class
 
 MIT — see [LICENSE](LICENSE).

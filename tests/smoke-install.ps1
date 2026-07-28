@@ -42,6 +42,27 @@ function Get-ManifestEntry {
 Write-Host 'oh-my-axon installer smoke test'
 Write-Host "  AXON_HOME=$AxonHome"
 
+# ------------------------------------------------------------- argument gate
+# The Windows half gets this from PowerShell's parameter binder, which refuses
+# an unrecognised flag before the script body runs. install.sh has to do it by
+# hand. The exit codes differ on purpose: the binder decides this one, so the
+# assertion is "non-zero and wrote nothing", not a shared number.
+Write-Host "`nargument handling"
+$r = Invoke-Installer -DryRunn
+Assert-That 'unknown flag is refused' ($r.Code -ne 0) "expected non-zero, got $($r.Code)"
+Assert-Match 'unknown flag names itself' $r.Out 'DryRunn'
+Assert-Absent 'a typo installs nothing' $AxonHome
+
+$r = Invoke-Installer -Version
+Assert-Equal '-Version exits 0' $r.Code 0
+Assert-Match '-Version prints a semver' $r.Out 'oh-my-axon \d+\.\d+\.\d+'
+Assert-Absent '-Version installs nothing' $AxonHome
+
+$r = Invoke-Installer -Help
+Assert-Equal '-Help exits 0' $r.Code 0
+Assert-Match '-Help lists the uninstall flag' $r.Out '-Uninstall'
+Assert-Absent '-Help installs nothing' $AxonHome
+
 # ------------------------------------------------------------------ dry run
 Write-Host "`ndry run writes nothing"
 $r = Invoke-Installer -DryRun
@@ -101,7 +122,7 @@ Write-Host "`nre-install backs up what it replaces"
 Add-Content (Join-Path $AxonHome 'agents\scout.md') '# locally modified'
 $r = Invoke-Installer
 Assert-Equal 're-install exits 0' $r.Code 0
-Assert-Match 're-install reports a backup' $r.Out 'backed up to'
+Assert-Match 're-install reports a backup' $r.Out 'backed up the files that differ'
 $backup = @(Get-ChildItem $AxonHome -Recurse -Filter 'scout.md' -File |
     Where-Object { $_.FullName -match 'oh-my-axon-backup-' })
 if ($backup.Count -gt 0) {

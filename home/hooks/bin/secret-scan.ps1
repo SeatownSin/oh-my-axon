@@ -5,7 +5,7 @@
 $payload = [Console]::In.ReadToEnd()
 
 function Deny([string]$what) {
-    $reason = "oh-my-axon secret-scan: $what detected in tool input. Keep credentials out of the repo (env var, or config outside the workspace) and retry without the secret."
+    $reason = "oh-my-axon secret-scan: this tool input contains $what. Move the credential to an environment variable, or to a file outside the workspace. Then send the request again without the secret."
     @{ decision = 'deny'; reason = $reason } | ConvertTo-Json -Compress | Write-Output
     exit 2
 }

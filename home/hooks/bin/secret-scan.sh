@@ -6,7 +6,7 @@
 payload=$(cat)
 
 deny() {
-    printf '{"decision":"deny","reason":"oh-my-axon secret-scan: %s detected in tool input. Keep credentials out of the repo (env var, or config outside the workspace) and retry without the secret."}\n' "$1"
+    printf '{"decision":"deny","reason":"oh-my-axon secret-scan: this tool input contains %s. Move the credential to an environment variable, or to a file outside the workspace. Then send the request again without the secret."}\n' "$1"
     exit 2
 }
 

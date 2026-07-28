@@ -2,21 +2,22 @@
 # oh-my-axon installer (Linux / WSL / macOS).
 #
 #   ./install.sh              install into $AXON_HOME (default ~/.axon)
-#   ./install.sh --dry-run    print what would be installed; write nothing
+#   ./install.sh --dry-run    print what an install writes, and write nothing
 #   ./install.sh --uninstall  remove exactly what a previous install put there
+#   ./install.sh --help       list every flag
 #
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
 set -eu
 
-OMA_VERSION="0.1.1"
+OMA_VERSION="0.1.2"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
 MANIFEST="$AXON_HOME/.oh-my-axon-manifest"
 
 uninstall() {
     if [ ! -f "$MANIFEST" ]; then
-        echo "oh-my-axon: no manifest at $MANIFEST — nothing to uninstall."
+        echo "oh-my-axon: no manifest at $MANIFEST. There is nothing to uninstall."
         exit 0
     fi
     # Skip the header line (oh-my-axon <version>).
@@ -30,7 +31,23 @@ uninstall() {
     for d in skills/ultrawork skills/plan skills/handoff skills/audit skills hooks/bin hooks agents personas; do
         rmdir "$AXON_HOME/$d" 2>/dev/null || true
     done
-    echo "oh-my-axon: uninstalled from $AXON_HOME."
+    echo "oh-my-axon: removed from $AXON_HOME."
+    exit 0
+}
+
+usage() {
+    cat <<'EOF'
+oh-my-axon installer.
+
+  ./install.sh                     install into ~/.axon
+  ./install.sh --with-format-hook  also install the opt-in format-on-edit hook
+  ./install.sh --dry-run           show what an install does, write nothing
+  ./install.sh --uninstall         remove the files listed in the manifest
+  ./install.sh --version           print the version
+  ./install.sh --help              print this text
+
+Set AXON_HOME to install somewhere other than ~/.axon.
+EOF
     exit 0
 }
 
@@ -41,18 +58,29 @@ for arg in "$@"; do
         --uninstall) uninstall ;;
         --dry-run) DRY_RUN=1 ;;
         --with-format-hook) FORMAT_HOOK=1 ;;
+        --version) echo "oh-my-axon $OMA_VERSION"; exit 0 ;;
+        -h|--help) usage ;;
+        # An unrecognised flag used to fall through to a full install, so a
+        # typo in --dry-run wrote every file the user was trying not to write.
+        # Refuse instead, and use the same exit code as gen-roles.
+        *)
+            echo "oh-my-axon: unknown argument: $arg" >&2
+            echo "  Run ./install.sh --help to see the flags this accepts." >&2
+            exit 2
+            ;;
     esac
 done
 
 if [ ! -d "$SRC_DIR/home" ]; then
-    echo "oh-my-axon: cannot find $SRC_DIR/home — run from a checkout." >&2
+    echo "oh-my-axon: cannot find $SRC_DIR/home." >&2
+    echo "  Run this script from a checkout of the repository." >&2
     exit 1
 fi
 
 # --dry-run: report what an install would do, then exit without writing
 # anything — no copies, no manifest, no backup dir, no chmod.
 if [ "$DRY_RUN" = "1" ]; then
-    echo "oh-my-axon $OMA_VERSION dry run — nothing will be written to $AXON_HOME"
+    echo "oh-my-axon $OMA_VERSION dry run. This writes nothing to $AXON_HOME."
     (cd "$SRC_DIR/home" && find . -type f ! -name 'secret-scan.json' ! -name 'format-on-edit.json' ! -name 'format-on-edit.sh' ! -name 'format-on-edit.ps1' | sed 's|^\./||') |
     while IFS= read -r rel; do
         echo "  would install: $rel"
@@ -129,17 +157,18 @@ fi
 } > "$MANIFEST"
 
 echo "oh-my-axon $OMA_VERSION installed into $AXON_HOME"
-[ "$backed_up" = 1 ] && echo "  (differing existing files backed up to $BACKUP_DIR)"
+[ "$backed_up" = 1 ] && echo "  oh-my-axon backed up the files that differ to $BACKUP_DIR."
 cat <<'EOF'
 
 Next steps:
-  1. Models: run `axon` once — the first-run wizard detects local servers
-     (LM Studio/Ollama/llama.cpp/vLLM). Hand config: see config/config.toml.snippet.
-  2. Try it:   /ultrawork <task>     full explore->plan->implement->verify
-               /plan <task>          plan only, saved to .axon/plans/
-  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer, looker),
-     personas in ~/.axon/personas (concise, thorough) — usable from the task
-     tool in any session.
+  1. Run `axon` once. The first-run wizard finds your local servers
+     (LM Studio, Ollama, llama.cpp, vLLM). To configure them by hand, see
+     config/config.toml.snippet.
+  2. Run /ultrawork <task> to explore, plan, implement, and verify in one pass.
+     Run /plan <task> to plan only. Axon writes the plan to .axon/plans/.
+  3. The agents are in ~/.axon/agents: scout, architect, executor, reviewer,
+     and looker. The personas are in ~/.axon/personas: concise and thorough.
+     Use both from the task tool in any session.
 
-Uninstall any time with:  ./install.sh --uninstall
+To remove oh-my-axon, run:  ./install.sh --uninstall
 EOF

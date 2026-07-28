@@ -130,6 +130,21 @@ The generated `[subagents.models]` pins beat each agent's own `model:`
 frontmatter, so this is how you retarget the agents without editing their
 files.
 
+## Does any of this actually help?
+
+`research/prompt-form/` is a first-party experiment on whether the *wording* of
+an agent's system prompt changes how a local model behaves. Three prompt forms
+carrying an identical rule set, three tasks over this repo's own source, two
+local models, ~420 calls, mechanical scoring with no LLM judge.
+
+The short version: **rule-following did not change**, but on a 12B model
+slop-written instructions cost up to **2.9× the reasoning and 2.1× the
+wall-clock** for the same answer, and tightening past the prompts shipped here
+is free on easy work and **0.27–0.77× the cost** on hard work. The 120B barely
+moves — this is a small-model effect. Full numbers, the caveats, and the four
+measurement bugs the experiment turned up are in its
+[README](research/prompt-form/README.md).
+
 ## Tune it to your model class
 
 Local doesn't mean small. oh-my-axon's defaults are safe on anything, but
@@ -198,6 +213,7 @@ home/               mirrors what lands in ~/.axon/
 config/
   config.toml.snippet
 tools/              gen-roles.sh / .ps1 -- role preset generator (not installed)
+research/           first-party experiments (not installed, not run in CI)
 tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
 ```

@@ -6,3 +6,7 @@
 .axon/plans/
 .axon/handoffs/
 .axon/audits/
+
+# Python bytecode from the research harness.
+__pycache__/
+*.pyc

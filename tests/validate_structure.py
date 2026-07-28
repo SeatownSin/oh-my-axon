@@ -220,6 +220,21 @@ def check_installer_versions():
               re.fullmatch(r"\d+\.\d+\.\d+", sh_ver.group(1)) is not None,
               f"got {sh_ver.group(1)!r}")
 
+        # The generator stamps its own version into every snippet it prints, so
+        # a missed bump there is a wrong number in output people paste into a
+        # config and keep. Four copies of a version string is three chances to
+        # drift; this is the check that makes them one.
+        for name, pattern in (
+            ("tools/gen-roles.sh", r'OMA_VERSION="([^"]+)"'),
+            ("tools/gen-roles.ps1", r"\$OmaVersion\s*=\s*'([^']+)'"),
+        ):
+            found = re.search(pattern, (REPO / name).read_text(encoding="utf-8"))
+            check(f"{name} declares a version", found is not None)
+            if found:
+                check(f"{name} agrees with the installers",
+                      found.group(1) == sh_ver.group(1),
+                      f"{name}={found.group(1)} install.sh={sh_ver.group(1)}")
+
     # Both installers prune the same directories on uninstall. A skill added
     # to one list and not the other leaves an empty dir behind on one OS.
     sh_dirs = re.search(r"for d in ([^;]+); do", sh)

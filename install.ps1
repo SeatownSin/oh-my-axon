@@ -10,7 +10,7 @@
 param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook)
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.0'
+$OmaVersion = '0.1.1'
 $SrcDir = $PSScriptRoot
 $AxonHome = if ($env:AXON_HOME) { $env:AXON_HOME } else { Join-Path $HOME '.axon' }
 $Manifest = Join-Path $AxonHome '.oh-my-axon-manifest'

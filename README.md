@@ -21,6 +21,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
+| **Role preset generator** | stays in this repo | `tools/gen-roles.sh` / `.ps1` — reads the models you already have and prints a `[models]` + `[subagents.models]` block wiring each agent to a sensible one. Prints only; never writes your config |
 
 ## Install
 
@@ -61,6 +62,71 @@ ulw fix the flaky watcher test                         # same, inline trigger
 The agents are also usable directly from any session via the task tool
 (`subagent_type: "scout"`, persona `"concise"`, etc.) — `/ultrawork` is
 just the curated way to drive them.
+
+## Wire the agents to your models
+
+With more than one server running, the agents should not all share one model:
+`executor` and `reviewer` want your strongest model, `scout` and the session
+housekeeping want your fastest. The generator reads the catalog you already
+have and prints that mapping:
+
+```sh
+tools/gen-roles.sh              # read ~/.axon/config.toml
+tools/gen-roles.sh --probe      # ask those servers what they are actually serving
+```
+
+```powershell
+.\tools\gen-roles.ps1
+.\tools\gen-roles.ps1 -Probe
+```
+
+It writes nothing — review the block and paste what you want into
+`~/.axon/config.toml`. Three things worth knowing about the output:
+
+- **Sizes are read from model names**, not measured. A model whose name
+  carries no parameter count sorts last rather than winning the "biggest"
+  slot by accident, and if nothing looks smaller than anything else it says
+  so instead of inventing a split.
+- **Off-box models are skipped by default** and listed under a "skipped"
+  heading. A role quietly pointed at a hosted endpoint would send your code
+  off your machine, which is the one thing this distribution promises not to
+  do. `--include-remote` / `-IncludeRemote` overrides that if you mean it.
+- **`--probe` contacts the endpoints your config already names** — it does not
+  guess ports. Guessing misses an LM Studio server on a high port and every
+  model served from another box, which between them cover most real setups.
+  Finding servers you have *not* configured yet is the first-run wizard's job
+  (`axon`), which sweeps the LAN too.
+
+The probe answers the question the name heuristic cannot — whether the models
+you configured are there at all:
+
+```
+# Probe -- what your configured endpoints are serving right now:
+#   DOWN   little -- http://127.0.0.1:49152/v1 (no answer)
+#   STALE  nemotron -- http://gata.local:8000/v1 (up, but serving laguna -- not "nemotron")
+#   UP     laguna -- http://gata.local:8000/v1
+#   SKIP   gemma-cloud -- off-box, not contacted
+#
+# Problems:
+#   little is assigned below (session_summary, prompt_suggestion, web_search, scout)
+#   but is not usable right now.
+```
+
+`STALE` is the one worth knowing: the server is up, but serving something else
+— the usual cause is two models configured against one endpoint that only runs
+one at a time. It also compares the `context_window` you configured against
+what the server reports, which is the only mechanical check on the
+misconfiguration described below.
+
+Two deliberate limits. Probing **never changes the assignments** — those come
+from your config alone, so a server that happens to be down cannot silently
+rewrite your mapping; it gets reported instead. And off-box endpoints are not
+contacted at all without `--include-remote`, for the same reason they are not
+assigned.
+
+The generated `[subagents.models]` pins beat each agent's own `model:`
+frontmatter, so this is how you retarget the agents without editing their
+files.
 
 ## Tune it to your model class
 
@@ -129,6 +195,7 @@ home/               mirrors what lands in ~/.axon/
   hooks/            secret-scan.json + format-on-edit.json + bin/ (sh + ps1)
 config/
   config.toml.snippet
+tools/              gen-roles.sh / .ps1 -- role preset generator (not installed)
 tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
 ```
@@ -143,12 +210,14 @@ Windows. The same checks run locally:
 ```sh
 sh tests/smoke-install.sh            # dry run -> install -> backup -> uninstall
 sh tests/smoke-hooks.sh              # payload in, decision out
+sh tests/smoke-gen-roles.sh          # role assignment, off-box exclusion, probe, determinism
 python3 tests/validate_structure.py  # frontmatter, hook JSON, installer agreement
 ```
 
 ```powershell
 pwsh -File tests\smoke-install.ps1
 pwsh -File tests\smoke-hooks.ps1
+pwsh -File tests\smoke-gen-roles.ps1
 ```
 
 The installer tests run against a throwaway `AXON_HOME` and refuse to start
@@ -156,8 +225,6 @@ if it would resolve to a real one, so they never touch your own install. The
 hook tests run the scripts through Windows PowerShell 5.1 where it exists,
 because that is what the installed hook command line uses.
 
-## Roadmap
-
-- role-level model presets generated from detected local servers
+## License
 
 MIT — see [LICENSE](LICENSE).

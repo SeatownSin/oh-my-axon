@@ -9,7 +9,7 @@
 # anything it would overwrite. It never touches config.toml.
 set -eu
 
-OMA_VERSION="0.1.0"
+OMA_VERSION="0.1.1"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
 MANIFEST="$AXON_HOME/.oh-my-axon-manifest"

@@ -46,6 +46,8 @@ anything it would overwrite, records a manifest, and **never touches your
 `./install.sh --dry-run` / `.\install.ps1 -DryRun`. Add the opt-in
 auto-format hook with `--with-format-hook` / `-WithFormatHook`. Uninstall
 cleanly with `./install.sh --uninstall` / `.\install.ps1 -Uninstall`.
+`--help` / `-Help` lists every flag, and an unrecognised one is refused
+rather than ignored — so a typo in `--dry-run` cannot install for real.
 
 Windows and WSL are separate installs (separate home dirs) — run the
 installer in each environment you use Axon from.

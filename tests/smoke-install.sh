@@ -48,6 +48,29 @@ run_installer() {
 echo "oh-my-axon installer smoke test"
 echo "  AXON_HOME=$AXON_HOME"
 
+# ------------------------------------------------------------- argument gate
+# An unknown flag used to fall through the arg loop into a REAL install, so a
+# typo in --dry-run wrote every file the user was trying not to write. The
+# Windows half never had the bug: PowerShell's parameter binder rejects an
+# unrecognised flag before install.ps1 runs.
+echo
+echo "argument handling"
+run_installer --dry-runn
+assert_eq 'unknown flag is refused (exit 2)' "$CODE" 2
+assert_match 'unknown flag names itself' "$OUT" 'unknown argument: --dry-runn'
+assert_match 'unknown flag points at --help' "$OUT" '--help'
+assert_absent 'a typo installs nothing' "$AXON_HOME"
+
+run_installer --version
+assert_eq '--version exits 0' "$CODE" 0
+assert_match '--version prints a semver' "$OUT" 'oh-my-axon [0-9]+\.[0-9]+\.[0-9]+$'
+assert_absent '--version installs nothing' "$AXON_HOME"
+
+run_installer --help
+assert_eq '--help exits 0' "$CODE" 0
+assert_match '--help lists the uninstall flag' "$OUT" '\-\-uninstall'
+assert_absent '--help installs nothing' "$AXON_HOME"
+
 # ------------------------------------------------------------------ dry run
 echo
 echo "dry run writes nothing"
@@ -110,7 +133,7 @@ echo "re-install backs up what it replaces"
 echo '# locally modified' >> "$AXON_HOME/agents/scout.md"
 run_installer
 assert_eq 're-install exits 0' "$CODE" 0
-assert_match 're-install reports a backup' "$OUT" 'backed up to'
+assert_match 're-install reports a backup' "$OUT" 'backed up the files that differ'
 BACKUP_COPY=$(find "$AXON_HOME" -path '*oh-my-axon-backup-*/agents/scout.md' | head -n 1)
 if [ -n "$BACKUP_COPY" ]; then
     pass 'modified file was backed up'

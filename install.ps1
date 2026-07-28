@@ -1,23 +1,53 @@
 ﻿# oh-my-axon installer (Windows).
 #
 #   .\install.ps1              install into $env:AXON_HOME (default ~\.axon)
-#   .\install.ps1 -DryRun      print what would be installed; write nothing
+#   .\install.ps1 -DryRun      print what an install writes, and write nothing
 #   .\install.ps1 -Uninstall   remove exactly what a previous install put there
+#   .\install.ps1 -Help        list every flag
 #
 # The installer only ever writes files listed in its manifest and backs up
 # anything it would overwrite. It never touches config.toml.
+#
+# PowerShell's parameter binder rejects an unknown flag before this script
+# runs, so a typo cannot fall through to a real install. install.sh has to
+# refuse unknown arguments by hand to reach the same behaviour.
 [CmdletBinding()]
-param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook)
+param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook,
+      [switch]$Version, [switch]$Help)
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.1'
+$OmaVersion = '0.1.2'
+
+# Failures go straight to stderr rather than through Write-Error, which
+# reflows a multi-line message to the console width. See tools/gen-roles.ps1.
+function Write-Fail {
+    param([string[]]$Line)
+    foreach ($l in $Line) { [Console]::Error.WriteLine($l) }
+}
+
+if ($Version) { Write-Host "oh-my-axon $OmaVersion"; exit 0 }
+if ($Help) {
+    Write-Host @'
+oh-my-axon installer.
+
+  .\install.ps1                    install into ~\.axon
+  .\install.ps1 -WithFormatHook    also install the opt-in format-on-edit hook
+  .\install.ps1 -DryRun            show what an install does, write nothing
+  .\install.ps1 -Uninstall         remove the files listed in the manifest
+  .\install.ps1 -Version           print the version
+  .\install.ps1 -Help              print this text
+
+Set AXON_HOME to install somewhere other than ~\.axon.
+'@
+    exit 0
+}
 $SrcDir = $PSScriptRoot
 $AxonHome = if ($env:AXON_HOME) { $env:AXON_HOME } else { Join-Path $HOME '.axon' }
 $Manifest = Join-Path $AxonHome '.oh-my-axon-manifest'
 
 if ($Uninstall) {
     if (-not (Test-Path $Manifest)) {
-        Write-Host "oh-my-axon: no manifest at $Manifest — nothing to uninstall."
+        Write-Host "oh-my-axon: no manifest at $Manifest. There is nothing to uninstall."
         exit 0
     }
     Get-Content $Manifest | Select-Object -Skip 1 | Where-Object { $_ } | ForEach-Object {
@@ -31,19 +61,23 @@ if ($Uninstall) {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }
-    Write-Host "oh-my-axon: uninstalled from $AxonHome."
+    Write-Host "oh-my-axon: removed from $AxonHome."
     exit 0
 }
 
 $HomeSrc = Join-Path $SrcDir 'home'
 if (-not (Test-Path $HomeSrc)) {
-    Write-Error "oh-my-axon: cannot find $HomeSrc — run from a checkout."
+    Write-Fail @(
+        "oh-my-axon: cannot find $HomeSrc.",
+        "  Run this script from a checkout of the repository."
+    )
+    exit 1
 }
 
 # -DryRun: report what an install would do, then exit without writing
 # anything — no copies, no manifest, no backup dir.
 if ($DryRun) {
-    Write-Host "oh-my-axon $OmaVersion dry run — nothing will be written to $AxonHome"
+    Write-Host "oh-my-axon $OmaVersion dry run. This writes nothing to $AxonHome."
     Get-ChildItem $HomeSrc -Recurse -File | Where-Object {
         $_.Name -ne 'secret-scan.json' -and
         $_.Name -ne 'format-on-edit.json' -and
@@ -130,17 +164,18 @@ $lines = @("oh-my-axon $OmaVersion") + ($installed | ForEach-Object { $_ -replac
 Set-Content -Path $Manifest -Value $lines
 
 Write-Host "oh-my-axon $OmaVersion installed into $AxonHome"
-if ($backedUp) { Write-Host "  (differing existing files backed up to $BackupDir)" }
+if ($backedUp) { Write-Host "  oh-my-axon backed up the files that differ to $BackupDir." }
 Write-Host @'
 
 Next steps:
-  1. Models: run `axon` once — the first-run wizard detects local servers
-     (LM Studio/Ollama/llama.cpp/vLLM). Hand config: see config/config.toml.snippet.
-  2. Try it:   /ultrawork <task>     full explore->plan->implement->verify
-               /plan <task>          plan only, saved to .axon/plans/
-  3. Agents land in ~/.axon/agents (scout, architect, executor, reviewer, looker),
-     personas in ~/.axon/personas (concise, thorough) — usable from the task
-     tool in any session.
+  1. Run `axon` once. The first-run wizard finds your local servers
+     (LM Studio, Ollama, llama.cpp, vLLM). To configure them by hand, see
+     config/config.toml.snippet.
+  2. Run /ultrawork <task> to explore, plan, implement, and verify in one pass.
+     Run /plan <task> to plan only. Axon writes the plan to .axon/plans/.
+  3. The agents are in ~/.axon/agents: scout, architect, executor, reviewer,
+     and looker. The personas are in ~/.axon/personas: concise and thorough.
+     Use both from the task tool in any session.
 
-Uninstall any time with:  .\install.ps1 -Uninstall
+To remove oh-my-axon, run:  .\install.ps1 -Uninstall
 '@

@@ -26,7 +26,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.1'
+$OmaVersion = '0.1.2'
 
 # Windows PowerShell 5.1 renders a redirected success stream through the
 # console's OEM code page, which flattens any non-ASCII in a model's display

@@ -38,17 +38,27 @@ try {
     Write-Verbose "could not set console output encoding: $_"
 }
 
+# Failures go straight to stderr rather than through Write-Error. The error
+# view reflows a message to the console width, so a multi-line explanation
+# comes back mangled and its exact wording depends on how wide the window
+# happens to be -- which is a property no caller should have to think about,
+# and which differs between a developer's terminal and a CI runner.
+function Write-Fail {
+    param([string[]]$Line)
+    foreach ($l in $Line) { [Console]::Error.WriteLine($l) }
+}
+
 if (-not $Config) {
     $axonHome = if ($env:AXON_HOME) { $env:AXON_HOME } else { Join-Path $HOME '.axon' }
     $Config = Join-Path $axonHome 'config.toml'
 }
 
 if (-not (Test-Path $Config -PathType Leaf)) {
-    Write-Error @"
-gen-roles: no config at $Config
-  Run ``axon`` once so the first-run wizard detects your servers,
-  or point at a config with -Config PATH.
-"@
+    Write-Fail @(
+        "gen-roles: no config at $Config",
+        '  Run `axon` once so the first-run wizard detects your servers,',
+        '  or point at a config with -Config PATH.'
+    )
     exit 1
 }
 
@@ -133,11 +143,11 @@ function Get-ModelCatalog {
 $all = @(Get-ModelCatalog -Path $Config)
 
 if ($all.Count -eq 0) {
-    Write-Error @"
-gen-roles: $Config defines no [model.*] entries.
-  Run ``axon`` once to let the wizard detect your servers, or see
-  config/config.toml.snippet for hand configuration.
-"@
+    Write-Fail @(
+        "gen-roles: $Config defines no [model.*] entries.",
+        '  Run `axon` once to let the wizard detect your servers, or see',
+        '  config/config.toml.snippet for hand configuration.'
+    )
     exit 1
 }
 
@@ -150,11 +160,11 @@ if ($IncludeRemote) {
 }
 
 if ($catalog.Count -eq 0) {
-    Write-Error @"
-gen-roles: every [model.*] entry in $Config is served off-box.
-  Nothing local to assign. Start a local server and re-run, or pass
-  -IncludeRemote to use the hosted entries anyway.
-"@
+    Write-Fail @(
+        "gen-roles: every [model.*] entry in $Config is served off-box.",
+        '  Nothing local to assign. Start a local server and re-run, or pass',
+        '  -IncludeRemote to use the hosted entries anyway.'
+    )
     exit 1
 }
 

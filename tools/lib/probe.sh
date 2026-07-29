@@ -46,6 +46,81 @@ probe_section_value() {
     ' "$1"
 }
 
+# The model an agent file pins in its own frontmatter, or empty.
+#
+# Only the frontmatter is read, never the body: the range stops at the closing
+# delimiter, so a `model:` mentioned in the prompt text below it is prose.
+probe_agent_model() {
+    # $1 = path to an agent .md file
+    [ -f "$1" ] || return 0
+    sed -n '/^---[[:space:]]*$/,/^---[[:space:]]*$/ s/^model:[[:space:]]*//p' "$1" |
+        head -1 |
+        sed 's/[[:space:]]*#.*$//; s/^["'"'"']//; s/["'"'"']$//; s/[[:space:]]*$//'
+}
+
+# The catalog key one role runs on, or empty when nothing resolves.
+#
+# Precedence, matching Axon's own: a [subagents.models] pin beats the agent
+# file's own `model:` frontmatter, which beats [models] default. The middle step
+# is not optional -- oh-my-axon's own `looker` pins `model: vision` in its
+# frontmatter, so without it an unpinned looker run gets recorded as having run
+# on the default model, which is a measurement of the wrong machine.
+#
+# gen-roles emits its pins with trailing comments, so stripping a comment
+# outside quotes is not optional either: `scout = "small"  # recon` must not
+# resolve to `small"  # recon`.
+probe_role_model() {
+    # $1 = config path, $2 = role name, $3 = agents dir (optional)
+    _prm_row=$(probe_role_model_row "$1" "$2")
+    _prm_pin=$(printf '%s' "$_prm_row" | cut -f 1)
+    _prm_slot=$(printf '%s' "$_prm_row" | cut -f 2)
+    _prm_dflt=$(printf '%s' "$_prm_row" | cut -f 3)
+
+    if [ -n "$_prm_pin" ]; then printf '%s' "$_prm_pin"; return 0; fi
+    if [ -n "$_prm_slot" ]; then printf '%s' "$_prm_slot"; return 0; fi
+    if [ -n "${3:-}" ]; then
+        _prm_fm=$(probe_agent_model "$3/$2.md")
+        if [ -n "$_prm_fm" ]; then printf '%s' "$_prm_fm"; return 0; fi
+    fi
+    printf '%s' "$_prm_dflt"
+}
+
+# pin <TAB> slot <TAB> default, for one role. Kept apart from the precedence
+# above so the frontmatter step can sit between the config lookups.
+probe_role_model_row() {
+    # $1 = config path, $2 = role name
+    awk -v want="$2" '
+        function unquote(s,   rest, q) {
+            sub(/^[^=]*=[[:space:]]*/, "", s)
+            if (substr(s, 1, 1) == "\"") {
+                rest = substr(s, 2); q = index(rest, "\"")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            if (substr(s, 1, 1) == "'"'"'") {
+                rest = substr(s, 2); q = index(rest, "'"'"'")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            sub(/[[:space:]]*#.*$/, "", s)
+            sub(/[[:space:]]+$/, "", s)
+            return s
+        }
+        /^[[:space:]]*\[models\][[:space:]]*$/            { sec = "models";    next }
+        /^[[:space:]]*\[subagents\.models\][[:space:]]*$/ { sec = "subagents"; next }
+        /^[[:space:]]*\[/                                 { sec = "";          next }
+        sec == "" { next }
+        {
+            k = $0
+            if (k !~ /=/) next
+            sub(/[[:space:]]*=.*$/, "", k)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
+            if (sec == "subagents" && k == want) { pinned = unquote($0) }
+            else if (sec == "models" && k == want) { slot = unquote($0) }
+            else if (sec == "models" && k == "default") { dflt = unquote($0) }
+        }
+        END { printf "%s\t%s\t%s\n", pinned, slot, dflt }
+    ' "$1"
+}
+
 # Parse the catalog. Emits one TAB-separated record per [model.<key>] section:
 #   key <TAB> size-rank <TAB> is-vision <TAB> is-local <TAB> label
 #       <TAB> base-url <TAB> wire-id <TAB> context-window

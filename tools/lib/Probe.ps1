@@ -52,6 +52,66 @@ function Test-LocalUrl {
     return $false
 }
 
+# The model an agent file pins in its own frontmatter, or empty.
+#
+# Only the frontmatter is read, never the body: scanning stops at the closing
+# delimiter, so a `model:` mentioned in the prompt text below it is prose.
+function Get-AgentModel {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+    $seenOpen = $false
+    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+        if ($line -match '^---\s*$') {
+            if ($seenOpen) { break }
+            $seenOpen = $true
+            continue
+        }
+        if (-not $seenOpen) { continue }
+        if ($line -match '^model:\s*(.*)$') {
+            $v = $Matches[1] -replace '\s*#.*$', ''
+            return $v.Trim().Trim('"').Trim("'")
+        }
+    }
+    return ''
+}
+
+# The catalog key one role runs on, or empty when nothing resolves.
+#
+# Precedence, matching Axon's own: a [subagents.models] pin beats the agent
+# file's own `model:` frontmatter, which beats [models] default. The middle step
+# is not optional -- oh-my-axon's own `looker` pins `model: vision` in its
+# frontmatter, so without it an unpinned looker run gets recorded as having run
+# on the default model, which is a measurement of the wrong machine.
+#
+# gen-roles emits its pins with trailing comments, so Get-TomlValue (which
+# strips a comment only outside quotes) does the reading -- `scout = "small"
+# # recon` must not resolve to `small"  # recon`.
+function Get-RoleModel {
+    param([string]$Path, [string]$Role, [string]$AgentsDir)
+    $sec = ''
+    $pinned = ''
+    $slot = ''
+    $dflt = ''
+    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+        if ($line -match '^\s*\[models\]\s*$')            { $sec = 'models';    continue }
+        if ($line -match '^\s*\[subagents\.models\]\s*$') { $sec = 'subagents'; continue }
+        if ($line -match '^\s*\[')                        { $sec = '';          continue }
+        if (-not $sec) { continue }
+        if ($line -notmatch '=') { continue }
+        $k = ($line -replace '\s*=.*$', '').Trim()
+        if ($sec -eq 'subagents' -and $k -ceq $Role)   { $pinned = Get-TomlValue $line }
+        elseif ($sec -eq 'models' -and $k -ceq $Role)  { $slot   = Get-TomlValue $line }
+        elseif ($sec -eq 'models' -and $k -ceq 'default') { $dflt = Get-TomlValue $line }
+    }
+    if ($pinned) { return $pinned }
+    if ($slot)   { return $slot }
+    if ($AgentsDir) {
+        $fm = Get-AgentModel -Path (Join-Path $AgentsDir "$Role.md")
+        if ($fm) { return $fm }
+    }
+    return $dflt
+}
+
 # Every [model.<key>] section, with the derived fields both tools need.
 function Get-ModelCatalog {
     param([string]$Path)

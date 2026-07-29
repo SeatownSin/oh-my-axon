@@ -178,6 +178,45 @@ $r = Invoke-Installer -Uninstall
 Assert-Equal 'uninstall after format-hook install exits 0' $r.Code 0
 Assert-Absent 'format hook descriptor removed' (Join-Path $AxonHome 'hooks\format-on-edit.json')
 
+# ---------------------------------------------------- opt-in telemetry hook
+Write-Host "`ninstall -WithTelemetry"
+Remove-Item -Recurse -Force $AxonHome -ErrorAction SilentlyContinue
+$r = Invoke-Installer
+Assert-Absent 'telemetry hook is not installed by default' (Join-Path $AxonHome 'hooks\subagent-telemetry.json')
+Assert-Absent 'the shared parser is not installed by default' (Join-Path $AxonHome 'hooks\lib\Probe.ps1')
+
+Remove-Item -Recurse -Force $AxonHome -ErrorAction SilentlyContinue
+$r = Invoke-Installer -WithTelemetry
+Assert-Equal 'install exits 0' $r.Code 0
+Assert-File 'telemetry descriptor installed' (Join-Path $AxonHome 'hooks\subagent-telemetry.json')
+Assert-File 'telemetry ps1 installed' (Join-Path $AxonHome 'hooks\bin\subagent-telemetry.ps1')
+Assert-File 'telemetry sh installed' (Join-Path $AxonHome 'hooks\bin\subagent-telemetry.sh')
+# The hook resolves each role's model through the shared parser, so the parser
+# has to travel with it. Without this the model field silently becomes null.
+Assert-File 'the Windows parser travels with the hook' (Join-Path $AxonHome 'hooks\lib\Probe.ps1')
+Assert-File 'the POSIX parser travels with the hook' (Join-Path $AxonHome 'hooks\lib\probe.sh')
+
+$telJson = Get-Content (Join-Path $AxonHome 'hooks\subagent-telemetry.json') -Raw
+Assert-NoMatch 'telemetry placeholder substituted' $telJson '__OMA_'
+Assert-Match 'telemetry hook points at the Windows script' $telJson 'subagent-telemetry\.ps1'
+# Registered under the canonical event name. Before Axon 0.3.5 the documented
+# alias SubagentEnd landed in a bucket nothing fired, and ran zero times.
+Assert-Match 'telemetry hook registers SubagentStop' $telJson '"SubagentStop"'
+
+$missing = @(Get-ManifestEntry | Where-Object { -not (Test-Path (Join-Path $AxonHome $_) -PathType Leaf) })
+Assert-Equal 'telemetry manifest is accurate' ($missing -join ' ') ''
+
+# Measurements already recorded are the user's, so uninstall must not take them.
+New-Item -ItemType Directory -Force (Join-Path $AxonHome 'telemetry') | Out-Null
+'{"ts":"t","subagentType":"scout"}' |
+    Set-Content -LiteralPath (Join-Path $AxonHome 'telemetry\subagents.jsonl') -Encoding ascii
+$r = Invoke-Installer -Uninstall
+Assert-Equal 'uninstall after telemetry install exits 0' $r.Code 0
+Assert-Absent 'telemetry descriptor removed' (Join-Path $AxonHome 'hooks\subagent-telemetry.json')
+Assert-Absent 'the shared parser is removed' (Join-Path $AxonHome 'hooks\lib\Probe.ps1')
+Assert-File 'uninstall leaves the recorded log alone' (Join-Path $AxonHome 'telemetry\subagents.jsonl')
+Assert-Match 'uninstall says where the log is' $r.Out 'telemetry log is still at'
+
 # ------------------------------------------------------------------ summary
 $ok = Write-Summary 'installer smoke test passed'
 Remove-Item -Recurse -Force $Scratch -ErrorAction SilentlyContinue

@@ -203,6 +203,59 @@ run_installer --uninstall
 assert_eq 'uninstall after format-hook install exits 0' "$CODE" 0
 assert_absent 'format hook descriptor removed' "$AXON_HOME/hooks/format-on-edit.json"
 
+# ---------------------------------------------------- opt-in telemetry hook
+echo
+echo "install --with-telemetry"
+rm -rf "$AXON_HOME"
+run_installer
+assert_absent 'telemetry hook is not installed by default' \
+    "$AXON_HOME/hooks/subagent-telemetry.json"
+assert_absent 'the shared parser is not installed by default' \
+    "$AXON_HOME/hooks/lib/probe.sh"
+
+rm -rf "$AXON_HOME"
+run_installer --with-telemetry
+assert_eq 'install exits 0' "$CODE" 0
+assert_file 'telemetry descriptor installed' "$AXON_HOME/hooks/subagent-telemetry.json"
+assert_file 'telemetry sh installed' "$AXON_HOME/hooks/bin/subagent-telemetry.sh"
+assert_file 'telemetry ps1 installed' "$AXON_HOME/hooks/bin/subagent-telemetry.ps1"
+# The hook resolves each role's model through the shared parser, so the parser
+# has to travel with it. Without this the model field silently becomes null.
+assert_file 'the shared parser travels with the hook' "$AXON_HOME/hooks/lib/probe.sh"
+assert_file 'the Windows parser travels with the hook' "$AXON_HOME/hooks/lib/Probe.ps1"
+
+TEL_JSON=$(cat "$AXON_HOME/hooks/subagent-telemetry.json")
+assert_no_match 'telemetry placeholder substituted' "$TEL_JSON" '__OMA_'
+assert_match 'telemetry hook points at the POSIX script' "$TEL_JSON" 'bin/subagent-telemetry\.sh'
+# Registered under the canonical event name. Before Axon 0.3.5 the documented
+# alias SubagentEnd landed in a bucket nothing fired, and ran zero times.
+assert_match 'telemetry hook registers SubagentStop' "$TEL_JSON" '"SubagentStop"'
+
+if [ -x "$AXON_HOME/hooks/bin/subagent-telemetry.sh" ]; then
+    pass 'telemetry hook script is executable'
+else
+    fail 'telemetry hook script is executable' 'not executable'
+fi
+
+missing=''
+for rel in $(tail -n +2 "$MANIFEST"); do
+    if [ ! -f "$AXON_HOME/$rel" ]; then
+        missing="$missing $rel"
+    fi
+done
+assert_eq 'telemetry manifest is accurate' "$missing" ''
+
+# Measurements already recorded are the user's, so uninstall must not take them.
+mkdir -p "$AXON_HOME/telemetry"
+echo '{"ts":"t","subagentType":"scout"}' > "$AXON_HOME/telemetry/subagents.jsonl"
+run_installer --uninstall
+assert_eq 'uninstall after telemetry install exits 0' "$CODE" 0
+assert_absent 'telemetry descriptor removed' "$AXON_HOME/hooks/subagent-telemetry.json"
+assert_absent 'the shared parser is removed' "$AXON_HOME/hooks/lib/probe.sh"
+assert_file 'uninstall leaves the recorded log alone' \
+    "$AXON_HOME/telemetry/subagents.jsonl"
+assert_match 'uninstall says where the log is' "$OUT" 'telemetry log is still at'
+
 # ------------------------------------------------------------------ summary
 if summary 'installer smoke test passed'; then
     status=0

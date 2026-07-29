@@ -21,6 +21,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
+| **Fleet doctor** | stays in this repo | `tools/doctor.sh` / `.ps1` — checks that the models your config names are actually up, serving what you think, and honest about their context window. Exits non-zero when a role's model is broken |
 | **Role preset generator** | stays in this repo | `tools/gen-roles.sh` / `.ps1` — reads the models you already have and prints a `[models]` + `[subagents.models]` block wiring each agent to a sensible one. Prints only; never writes your config |
 
 ## Install
@@ -130,6 +131,50 @@ The generated `[subagents.models]` pins beat each agent's own `model:`
 frontmatter, so this is how you retarget the agents without editing their
 files.
 
+## Check the fleet before a long run
+
+A model that is down, swapped out from under you, or lying about its context
+window does not fail cleanly. It fails in the middle of a pipeline, as an
+inference error that says nothing about the real cause. The doctor asks first:
+
+```sh
+tools/doctor.sh              # fast: reachability, served ids, context drift
+tools/doctor.sh --generate   # also send one completion per model
+```
+
+```powershell
+.	ools\doctor.ps1
+.	ools\doctor.ps1 -Generate
+```
+
+```
+oh-my-axon doctor -- 5 endpoint(s) contacted from ~/.axon/config.toml
+
+  DOWN   little -- http://127.0.0.1:49152/v1
+  STALE  nemotron -- http://gata.local:8000/v1
+  UP     laguna -- http://gata.local:8000/v1
+  SKIP   gemma-cloud -- off-box, not contacted
+
+Problems:
+little is unreachable at http://127.0.0.1:49152/v1.
+  ^ this breaks: scout, session_summary
+nemotron points at a server that is up but serving laguna, not "nemotron".
+```
+
+`STALE` is the one worth knowing: the endpoint answers, but it is serving
+something else — usually two models configured against one server that runs
+one at a time. Every problem names the roles it breaks, so you can tell a dead
+spare from a dead `executor`.
+
+It exits **1** when anything is wrong, so it works in a script. It contacts
+only the endpoints your config already names, never guesses ports, and never
+touches off-box endpoints without `--include-remote`.
+
+`--generate` additionally sends one tiny completion per model, which catches
+what a listing cannot: whether reasoning is leaking into the reply text. It is
+opt-in because it costs a round trip per model, and because the first
+completion against an idle server can trigger a model load.
+
 ## Tune it to your model class
 
 Local doesn't mean small. oh-my-axon's defaults are safe on anything, but
@@ -198,6 +243,8 @@ home/               mirrors what lands in ~/.axon/
 config/
   config.toml.snippet
 tools/              gen-roles.sh / .ps1 -- role preset generator (not installed)
+  lib/              probe.sh / Probe.ps1 -- shared catalog + endpoint probing
+                    doctor.sh / .ps1 -- fleet health check (not installed)
 tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
 ```
@@ -213,6 +260,7 @@ Windows. The same checks run locally:
 sh tests/smoke-install.sh            # dry run -> install -> backup -> uninstall
 sh tests/smoke-hooks.sh              # payload in, decision out
 sh tests/smoke-gen-roles.sh          # role assignment, off-box exclusion, probe, determinism
+sh tests/smoke-doctor.sh             # UP/STALE/AUTH/DOWN, context drift, exit codes
 python3 tests/validate_structure.py  # frontmatter, hook JSON, installer agreement
 ```
 
@@ -220,6 +268,7 @@ python3 tests/validate_structure.py  # frontmatter, hook JSON, installer agreeme
 pwsh -File tests\smoke-install.ps1
 pwsh -File tests\smoke-hooks.ps1
 pwsh -File tests\smoke-gen-roles.ps1
+pwsh -File tests\smoke-doctor.ps1
 ```
 
 The installer tests run against a throwaway `AXON_HOME` and refuse to start

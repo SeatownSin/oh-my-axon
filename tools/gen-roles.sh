@@ -18,7 +18,7 @@
 # a starting point to edit, not an answer.
 set -eu
 
-OMA_VERSION="0.1.2"
+OMA_VERSION="0.1.3"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
 CONFIG="$AXON_HOME/config.toml"
 PROBE=0
@@ -52,6 +52,12 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
+# Shared catalog + endpoint probing, also used by doctor. Resolved relative to
+# this script so the tool still runs from any cwd inside a checkout.
+TOOLS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=tools/lib/probe.sh
+. "$TOOLS_DIR/lib/probe.sh"
+
 # ---------------------------------------------------------------------------
 # Parse the catalog. Emits one TAB-separated record per [model.<key>] section:
 #   key <TAB> size-rank <TAB> is-vision <TAB> is-local <TAB> label
@@ -70,83 +76,7 @@ fi
 # bare hostnames count as local; anything else is off-box. A missing base_url
 # means a vendor-hosted catalog entry, which is off-box by definition.
 # ---------------------------------------------------------------------------
-parse_catalog() {
-    awk '
-        function unquote(s) {
-            sub(/^[^=]*=[[:space:]]*/, "", s)
-            sub(/[[:space:]]*(#.*)?$/, "", s)
-            gsub(/^["'"'"']|["'"'"']$/, "", s)
-            return s
-        }
-        # Parameter count in billions, or 0 when the text carries none.
-        function params(s,   t, a, b) {
-            t = tolower(s)
-            if (match(t, /[0-9]+x[0-9]+(\.[0-9]+)?b([^a-z0-9]|$)/)) {
-                a = substr(t, RSTART, RLENGTH)
-                sub(/b.*$/, "", a)
-                split(a, parts, "x")
-                return parts[1] * parts[2]
-            }
-            if (match(t, /[0-9]+(\.[0-9]+)?b([^a-z0-9]|$)/)) {
-                b = substr(t, RSTART, RLENGTH)
-                sub(/b.*$/, "", b)
-                return b + 0
-            }
-            return 0
-        }
-        function is_vision(s,   t) {
-            t = tolower(s)
-            return (t ~ /vision|llava|moondream|pixtral|internvl|cogvlm|idefics|smolvlm|minicpm-v/ ||
-                    t ~ /(^|[^a-z])vl([^a-z]|$)/)
-        }
-        # Host is on this machine or this LAN.
-        function is_local(url,   h) {
-            if (url == "") return 0
-            h = tolower(url)
-            sub(/^[a-z]+:\/\//, "", h)
-            sub(/[\/:].*$/, "", h)
-            gsub(/[\[\]]/, "", h)
-            if (h == "localhost" || h == "::1" || h ~ /^127\./) return 1
-            if (h ~ /^10\./ || h ~ /^192\.168\./) return 1
-            if (h ~ /^172\.(1[6-9]|2[0-9]|3[01])\./) return 1
-            if (h ~ /\.(local|lan|home|internal|localdomain)$/) return 1
-            if (h !~ /\./) return 1   # bare hostname: a LAN box
-            return 0
-        }
-        /^[[:space:]]*\[model\./ {
-            key = $0
-            sub(/^[[:space:]]*\[model\./, "", key)
-            sub(/\].*$/, "", key)
-            gsub(/["'"'"']/, "", key)
-            cur = key
-            n++
-            order[n] = cur
-            model[cur] = ""
-            label[cur] = ""
-            url[cur] = ""
-            ctx[cur] = ""
-            next
-        }
-        # Any other table header closes the current [model.*] section.
-        /^[[:space:]]*\[/ { cur = ""; next }
-        cur != "" && /^[[:space:]]*model[[:space:]]*=/    { model[cur] = unquote($0); next }
-        cur != "" && /^[[:space:]]*name[[:space:]]*=/     { label[cur] = unquote($0); next }
-        cur != "" && /^[[:space:]]*base_url[[:space:]]*=/ { url[cur]   = unquote($0); next }
-        cur != "" && /^[[:space:]]*context_window[[:space:]]*=/ { ctx[cur] = unquote($0); next }
-        END {
-            for (i = 1; i <= n; i++) {
-                k = order[i]
-                blob = k " " model[k] " " label[k]
-                p = params(blob)
-                v = is_vision(blob) ? 1 : 0
-                l = is_local(url[k]) ? 1 : 0
-                c = (ctx[k] ~ /^[0-9]+$/) ? ctx[k] : 0
-                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
-                    k, p, v, l, (label[k] != "" ? label[k] : model[k]), url[k], model[k], c
-            }
-        }
-    ' "$1"
-}
+parse_catalog() { probe_parse_catalog "$1"; }
 
 ALL=$(parse_catalog "$CONFIG")
 
@@ -222,91 +152,24 @@ TIERED=0
 
 # One value out of one [model.<key>] section, or empty. Credentials are read
 # here and nowhere else, so no formatting path can reach one.
-section_value() {
-    # $1 = config path, $2 = model key, $3 = field name
-    awk -v want="$2" -v field="$3" '
-        function unquote(s) {
-            sub(/^[^=]*=[[:space:]]*/, "", s)
-            sub(/[[:space:]]*(#.*)?$/, "", s)
-            gsub(/^["'"'"']|["'"'"']$/, "", s)
-            return s
-        }
-        /^[[:space:]]*\[model\./ {
-            k = $0
-            sub(/^[[:space:]]*\[model\./, "", k)
-            sub(/\].*$/, "", k)
-            gsub(/["'"'"']/, "", k)
-            cur = (k == want)
-            next
-        }
-        /^[[:space:]]*\[/ { cur = 0; next }
-        cur && $0 ~ ("^[[:space:]]*" field "[[:space:]]*=") { print unquote($0); exit }
-    ' "$1"
-}
+section_value() { probe_section_value "$1" "$2" "$3"; }
 
 # The ids an endpoint reports serving, one per line. Records mentioning
 # "permission" are skipped: vLLM nests a modelperm-* object carrying its own
 # "id" inside every model, and counting those would invent models.
-served_ids() {
-    printf '%s' "$1" | awk 'BEGIN { RS = "," }
-        /"permission"/ { next }
-        {
-            if (match($0, /"id"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-                s = substr($0, RSTART, RLENGTH)
-                sub(/^"id"[[:space:]]*:[[:space:]]*"/, "", s)
-                sub(/"$/, "", s)
-                if (s !~ /^modelperm-/) print s
-            }
-        }'
-}
+served_ids() { probe_served_ids "$1"; }
 
 # The context length an endpoint reports for one id, or empty. vLLM answers
 # with max_model_len; LM Studio and Ollama report nothing at all, which is why
 # a missing value is silence rather than a complaint.
-served_ctx() {
-    # $1 = response body, $2 = wire id
-    printf '%s' "$1" | awk -v want="$2" 'BEGIN { RS = "," }
-        /"permission"/ { next }
-        {
-            if (match($0, /"id"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-                s = substr($0, RSTART, RLENGTH)
-                sub(/^"id"[[:space:]]*:[[:space:]]*"/, "", s)
-                sub(/"$/, "", s)
-                if (s !~ /^modelperm-/) cur = s
-            }
-            if (cur == want &&
-                match($0, /"(max_model_len|loaded_context_length)"[[:space:]]*:[[:space:]]*[0-9]+/)) {
-                t = substr($0, RSTART, RLENGTH)
-                sub(/^.*:[[:space:]]*/, "", t)
-                print t
-                exit
-            }
-        }'
-}
+served_ctx() { probe_served_ctx "$1" "$2"; }
 
 # GET one endpoint. Sets P_CODE (HTTP status; 000 = nothing answered) and
 # P_BODY. Never aborts: an unreachable server is a result, not an error.
-http_get() {
-    # $1 = url, $2 = auth header (may be empty)
-    _raw=""
-    if [ -n "$2" ]; then
-        _raw=$(curl -sS -m 5 -H "$2" -w '\n%{http_code}' "$1" 2>/dev/null) || true
-    else
-        _raw=$(curl -sS -m 5 -w '\n%{http_code}' "$1" 2>/dev/null) || true
-    fi
-    if [ -z "$_raw" ]; then
-        P_CODE="000"
-        P_BODY=""
-        return 0
-    fi
-    P_CODE=$(printf '%s' "$_raw" | tail -n 1)
-    P_BODY=$(printf '%s' "$_raw" | sed '$d')
-}
+http_get() { probe_http_get "$1" "$2"; }
 
 # base_url already ends in /v1 by convention; the listing hangs off it.
-models_endpoint() {
-    printf '%s/models' "${1%/}"
-}
+models_endpoint() { probe_models_endpoint "$1"; }
 
 # The roles a catalog key is about to be handed, for reporting only.
 roles_for() {

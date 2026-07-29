@@ -8,8 +8,12 @@
 function Get-TomlValue {
     param([string]$Line)
     $v = $Line -replace '^[^=]*=\s*', ''
-    $v = $v -replace '\s*(#.*)?$', ''
-    return $v.Trim().Trim('"').Trim("'")
+    # A value may legitimately contain a hash. Strip a trailing comment only
+    # when it sits outside a quoted string, or an api_key of "abc#def"
+    # silently becomes "abc" and the request fails as a puzzling 401.
+    if ($v -match '^"([^"]*)"') { return $Matches[1] }
+    if ($v -match "^'([^']*)'") { return $Matches[1] }
+    return (($v -replace '\s*#.*$', '').Trim())
 }
 
 # Parameter count in billions scraped from a name, or 0 when it carries none.

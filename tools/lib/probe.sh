@@ -16,10 +16,21 @@
 probe_section_value() {
     # $1 = config path, $2 = model key, $3 = field name
     awk -v want="$2" -v field="$3" '
-        function unquote(s) {
+        # A value may legitimately contain a hash. Strip a trailing comment only
+        # when it sits OUTSIDE a quoted string, or an api_key of "abc#def"
+        # silently becomes "abc" and the request fails as a puzzling 401.
+        function unquote(s,   rest, q) {
             sub(/^[^=]*=[[:space:]]*/, "", s)
-            sub(/[[:space:]]*(#.*)?$/, "", s)
-            gsub(/^["'"'"']|["'"'"']$/, "", s)
+            if (substr(s, 1, 1) == "\"") {
+                rest = substr(s, 2); q = index(rest, "\"")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            if (substr(s, 1, 1) == "'"'"'") {
+                rest = substr(s, 2); q = index(rest, "'"'"'")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            sub(/[[:space:]]*#.*$/, "", s)
+            sub(/[[:space:]]+$/, "", s)
             return s
         }
         /^[[:space:]]*\[model\./ {
@@ -49,10 +60,21 @@ probe_section_value() {
 # means a vendor-hosted catalog entry, which is off-box by definition.
 probe_parse_catalog() {
     awk '
-        function unquote(s) {
+        # A value may legitimately contain a hash. Strip a trailing comment only
+        # when it sits OUTSIDE a quoted string, or an api_key of "abc#def"
+        # silently becomes "abc" and the request fails as a puzzling 401.
+        function unquote(s,   rest, q) {
             sub(/^[^=]*=[[:space:]]*/, "", s)
-            sub(/[[:space:]]*(#.*)?$/, "", s)
-            gsub(/^["'"'"']|["'"'"']$/, "", s)
+            if (substr(s, 1, 1) == "\"") {
+                rest = substr(s, 2); q = index(rest, "\"")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            if (substr(s, 1, 1) == "'"'"'") {
+                rest = substr(s, 2); q = index(rest, "'"'"'")
+                return (q > 0) ? substr(rest, 1, q - 1) : rest
+            }
+            sub(/[[:space:]]*#.*$/, "", s)
+            sub(/[[:space:]]+$/, "", s)
             return s
         }
         function params(s,   t, a, b) {

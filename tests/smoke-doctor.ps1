@@ -85,6 +85,45 @@ model = "some-hosted-model"
 $r = Invoke-Doctor @('-Config', (Join-Path $Work 'nourl.toml'))
 Assert-Match 'an entry with no base_url is skipped' $r.Out 'SKIP   vendor -- no base_url'
 
+# --- values containing a hash ----------------------------------------------
+# TOML comment stripping must respect quotes. It did not: `api_key = "abc#def"`
+# was truncated to `abc`, which reaches the server as a wrong key and comes
+# back as a puzzling 401 that blames the credential rather than the parser.
+Write-Host "`nvalues containing a hash"
+@'
+[model.served]
+model = "served-70b"
+base_url = "http://127.0.0.1:1/v1"
+api_key = "abc#def123"
+name = "GPU #2 box"
+context_window = 4096  # trailing comment on a bare value
+'@ | Set-Content -LiteralPath (Join-Path $Work 'hash.toml') -Encoding UTF8
+$hashCfg = Join-Path $Work 'hash.toml'
+. (Join-Path $RepoRoot 'tools\lib\Probe.ps1')
+Assert-Equal 'a hash inside a quoted api_key survives' `
+    (Get-ProbeSectionValue -Path $hashCfg -Key 'served' -Field 'api_key') 'abc#def123'
+Assert-Equal 'a hash inside a quoted name survives' `
+    (Get-ProbeSectionValue -Path $hashCfg -Key 'served' -Field 'name') 'GPU #2 box'
+Assert-Equal 'a trailing comment on a bare value is still stripped' `
+    (Get-ProbeSectionValue -Path $hashCfg -Key 'served' -Field 'context_window') '4096'
+
+# --- roles read from [subagents.models] -------------------------------------
+Write-Host "`nrole attribution"
+@'
+[model.dead]
+model = "dead-70b"
+base_url = "http://127.0.0.1:1/v1"
+
+[models]
+default = "other"
+
+[subagents.models]
+executor = "dead"
+reviewer = "dead"
+'@ | Set-Content -LiteralPath (Join-Path $Work 'subagents.toml') -Encoding UTF8
+$r = Invoke-Doctor @('-Config', (Join-Path $Work 'subagents.toml'))
+Assert-Match 'roles are read from [subagents.models] too' $r.Out 'this breaks: executor, reviewer'
+
 # --- against a live endpoint ------------------------------------------------
 # `python` before `python3`: on Windows `python3` is often the Microsoft Store
 # stub, which resolves through Get-Command and then runs nothing.
@@ -98,12 +137,16 @@ foreach ($cand in @('python', 'python3')) {
 
 # SupportsShouldProcess to satisfy the state-changing-verb rule, matching
 # New-TempDir in Helpers.ps1.
+$script:FakeSeq = 0
 function New-FakeServer {
     [CmdletBinding(SupportsShouldProcess)]
     param([string[]]$ServerArgs)
     if (-not $PSCmdlet.ShouldProcess('fake model server', 'start')) { return $null }
-    $log = Join-Path $Work 'fake.log'
-    if (Test-Path $log) { Remove-Item -Force $log }
+    # A unique log per server: Stop-Process is asynchronous, so reusing one
+    # filename races the OS releasing the handle and fails the next start with
+    # "the file is being used by another process" -- an intermittent CI red.
+    $script:FakeSeq++
+    $log = Join-Path $Work ("fake-{0}.log" -f $script:FakeSeq)
     $argList = @((Join-Path $TestsDir 'fake-openai-server.py')) + $ServerArgs
     $proc = Start-Process -FilePath $Py -ArgumentList $argList `
         -RedirectStandardOutput $log -NoNewWindow -PassThru
@@ -175,6 +218,7 @@ base_url = "$base"
     }
     if ($fake.Proc -and -not $fake.Proc.HasExited) {
         Stop-Process -Id $fake.Proc.Id -Force -ErrorAction SilentlyContinue
+        [void]$fake.Proc.WaitForExit(5000)
     }
 
     $fake = New-FakeServer -ServerArgs @('--id', 'served-70b', '--require-auth', 'sekrit')
@@ -203,6 +247,7 @@ api_key = "sekrit"
     }
     if ($fake.Proc -and -not $fake.Proc.HasExited) {
         Stop-Process -Id $fake.Proc.Id -Force -ErrorAction SilentlyContinue
+        [void]$fake.Proc.WaitForExit(5000)
     }
 } else {
     Assert-That 'live-endpoint checks skipped (no python3)' $true

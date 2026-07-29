@@ -213,12 +213,16 @@ foreach ($cand in @('python', 'python3')) {
 
 # SupportsShouldProcess to satisfy the state-changing-verb rule, matching
 # New-TempDir in Helpers.ps1.
+$script:FakeSeq = 0
 function New-FakeServer {
     [CmdletBinding(SupportsShouldProcess)]
     param([string[]]$ServerArgs)
     if (-not $PSCmdlet.ShouldProcess('fake model server', 'start')) { return $null }
-    $log = Join-Path $Work 'fake.log'
-    if (Test-Path $log) { Remove-Item -Force $log }
+    # A unique log per server: Stop-Process is asynchronous, so reusing one
+    # filename races the OS releasing the handle and fails the next start with
+    # "the file is being used by another process" -- an intermittent CI red.
+    $script:FakeSeq++
+    $log = Join-Path $Work ("fake-{0}.log" -f $script:FakeSeq)
     $argList = @((Join-Path $TestsDir 'fake-openai-server.py')) + $ServerArgs
     $proc = Start-Process -FilePath $Py -ArgumentList $argList `
         -RedirectStandardOutput $log -NoNewWindow -PassThru
@@ -292,6 +296,7 @@ base_url = "$base"
     }
     if ($fake.Proc -and -not $fake.Proc.HasExited) {
         Stop-Process -Id $fake.Proc.Id -Force -ErrorAction SilentlyContinue
+        [void]$fake.Proc.WaitForExit(5000)
     }
 
     # A server that demands a token it is not given is up, not down -- saying
@@ -324,6 +329,7 @@ api_key = "sekrit"
     }
     if ($fake.Proc -and -not $fake.Proc.HasExited) {
         Stop-Process -Id $fake.Proc.Id -Force -ErrorAction SilentlyContinue
+        [void]$fake.Proc.WaitForExit(5000)
     }
 
     # Everything the probe emits is a comment, or the snippet stops being

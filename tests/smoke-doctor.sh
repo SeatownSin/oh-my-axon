@@ -90,6 +90,45 @@ EOF
 run_doc --config "$WORK/nourl.toml"
 assert_match 'an entry with no base_url is skipped' "$OUT" 'SKIP   vendor -- no base_url'
 
+# --- values containing a hash ----------------------------------------------
+# TOML comment stripping must respect quotes. It did not: `api_key = "abc#def"`
+# was truncated to `abc`, which reaches the server as a wrong key and comes
+# back as a puzzling 401 that blames the credential rather than the parser.
+echo
+echo "values containing a hash"
+cat > "$WORK/hash.toml" <<'EOF'
+[model.served]
+model = "served-70b"
+base_url = "http://127.0.0.1:1/v1"
+api_key = "abc#def123"
+name = "GPU #2 box"
+context_window = 4096  # trailing comment on a bare value
+EOF
+KEYVAL=$(sh -c '. "'"$REPO_ROOT"'/tools/lib/probe.sh"; probe_section_value "'"$WORK"'/hash.toml" served api_key')
+assert_eq 'a hash inside a quoted api_key survives' "$KEYVAL" 'abc#def123'
+NAMEVAL=$(sh -c '. "'"$REPO_ROOT"'/tools/lib/probe.sh"; probe_section_value "'"$WORK"'/hash.toml" served name')
+assert_eq 'a hash inside a quoted name survives' "$NAMEVAL" 'GPU #2 box'
+CTXVAL=$(sh -c '. "'"$REPO_ROOT"'/tools/lib/probe.sh"; probe_section_value "'"$WORK"'/hash.toml" served context_window')
+assert_eq 'a trailing comment on a bare value is still stripped' "$CTXVAL" '4096'
+
+# --- roles read from [subagents.models] -------------------------------------
+echo
+echo "role attribution"
+cat > "$WORK/subagents.toml" <<'EOF'
+[model.dead]
+model = "dead-70b"
+base_url = "http://127.0.0.1:1/v1"
+
+[models]
+default = "other"
+
+[subagents.models]
+executor = "dead"
+reviewer = "dead"
+EOF
+run_doc --config "$WORK/subagents.toml"
+assert_match 'roles are read from [subagents.models] too' "$OUT" 'this breaks: executor, reviewer'
+
 # --- against a live endpoint ------------------------------------------------
 PY=""
 for _cand in python3 python; do

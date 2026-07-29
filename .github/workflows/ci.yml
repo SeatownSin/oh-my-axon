@@ -30,6 +30,7 @@ jobs:
           shellcheck --shell=sh --severity=style \
             install.sh \
             tools/*.sh \
+            tools/lib/*.sh \
             tests/*.sh \
             home/hooks/bin/*.sh
 
@@ -71,6 +72,8 @@ jobs:
         run: sh tests/smoke-hooks.sh
       - name: Role generator
         run: sh tests/smoke-gen-roles.sh
+      - name: Fleet doctor
+        run: sh tests/smoke-doctor.sh
 
   smoke-windows:
     name: smoke (windows)
@@ -88,3 +91,6 @@ jobs:
       - name: Role generator
         shell: pwsh
         run: pwsh -NoProfile -File tests/smoke-gen-roles.ps1
+      - name: Fleet doctor
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/smoke-doctor.ps1

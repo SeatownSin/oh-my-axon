@@ -227,6 +227,8 @@ def check_installer_versions():
         for name, pattern in (
             ("tools/gen-roles.sh", r'OMA_VERSION="([^"]+)"'),
             ("tools/gen-roles.ps1", r"\$OmaVersion\s*=\s*'([^']+)'"),
+            ("tools/doctor.sh", r'OMA_VERSION="([^"]+)"'),
+            ("tools/doctor.ps1", r"\$OmaVersion\s*=\s*'([^']+)'"),
         ):
             found = re.search(pattern, (REPO / name).read_text(encoding="utf-8"))
             check(f"{name} declares a version", found is not None)

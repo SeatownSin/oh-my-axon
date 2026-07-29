@@ -26,7 +26,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.2'
+$OmaVersion = '0.1.3'
+
+# Shared catalog + endpoint probing, also used by doctor. Resolved relative to
+# this script so the tool still runs from any cwd inside a checkout.
+. (Join-Path $PSScriptRoot 'lib\Probe.ps1')
 
 # Windows PowerShell 5.1 renders a redirected success stream through the
 # console's OEM code page, which flattens any non-ASCII in a model's display
@@ -65,80 +69,13 @@ if (-not (Test-Path $Config -PathType Leaf)) {
 # Parameter count in billions scraped from a name, or 0 when it carries none.
 # "8x7b" style MoE names multiply out. 0 sorts last, so an unlabelled model
 # never wins the "biggest" slot by accident.
-function Get-ParamCount {
-    param([string]$Text)
-    $t = $Text.ToLowerInvariant()
-    if ($t -match '(\d+)x(\d+(?:\.\d+)?)b(?:[^a-z0-9]|$)') {
-        return [double]$Matches[1] * [double]$Matches[2]
-    }
-    if ($t -match '(\d+(?:\.\d+)?)b(?:[^a-z0-9]|$)') {
-        return [double]$Matches[1]
-    }
-    return 0.0
-}
 
-function Test-VisionName {
-    param([string]$Text)
-    $t = $Text.ToLowerInvariant()
-    if ($t -match 'vision|llava|moondream|pixtral|internvl|cogvlm|idefics|smolvlm|minicpm-v') { return $true }
-    return ($t -match '(^|[^a-z])vl([^a-z]|$)')
-}
 
 # Host is on this machine or this LAN. A missing base_url means a
 # vendor-hosted catalog entry, which is off-box by definition.
-function Test-LocalUrl {
-    param([string]$Url)
-    if (-not $Url) { return $false }
-    $h = $Url.ToLowerInvariant() -replace '^[a-z]+://', ''
-    $h = ($h -split '[/:]')[0]
-    $h = $h -replace '[\[\]]', ''
-    if ($h -eq 'localhost' -or $h -eq '::1' -or $h -match '^127\.') { return $true }
-    if ($h -match '^10\.' -or $h -match '^192\.168\.') { return $true }
-    if ($h -match '^172\.(1[6-9]|2\d|3[01])\.') { return $true }
-    if ($h -match '\.(local|lan|home|internal|localdomain)$') { return $true }
-    if ($h -notmatch '\.') { return $true }   # bare hostname: a LAN box
-    return $false
-}
 
-function Get-TomlValue {
-    param([string]$Line)
-    $v = $Line -replace '^[^=]*=\s*', ''
-    $v = $v -replace '\s*(#.*)?$', ''
-    return $v.Trim().Trim('"').Trim("'")
-}
 
 # Parse every [model.<key>] section out of the config.
-function Get-ModelCatalog {
-    param([string]$Path)
-    $entries = @()
-    $cur = $null
-    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
-        if ($line -match '^\s*\[model\.([^\]]+)\]') {
-            $key = $Matches[1].Trim().Trim('"').Trim("'")
-            $cur = [pscustomobject]@{ Key = $key; Model = ''; Label = ''; Url = ''; Ctx = 0 }
-            $entries += $cur
-            continue
-        }
-        if ($line -match '^\s*\[') { $cur = $null; continue }
-        if ($null -eq $cur) { continue }
-        if ($line -match '^\s*model\s*=')    { $cur.Model = Get-TomlValue $line; continue }
-        if ($line -match '^\s*name\s*=')     { $cur.Label = Get-TomlValue $line; continue }
-        if ($line -match '^\s*base_url\s*=') { $cur.Url   = Get-TomlValue $line; continue }
-        if ($line -match '^\s*context_window\s*=') {
-            $raw = Get-TomlValue $line
-            if ($raw -match '^\d+$') { $cur.Ctx = [long]$raw }
-            continue
-        }
-    }
-    foreach ($e in $entries) {
-        $blob = "$($e.Key) $($e.Model) $($e.Label)"
-        $e | Add-Member -NotePropertyName Size    -NotePropertyValue (Get-ParamCount $blob)
-        $e | Add-Member -NotePropertyName Vision  -NotePropertyValue (Test-VisionName $blob)
-        $e | Add-Member -NotePropertyName IsLocal -NotePropertyValue (Test-LocalUrl $e.Url)
-        $e | Add-Member -NotePropertyName Display -NotePropertyValue $(if ($e.Label) { $e.Label } else { $e.Model })
-    }
-    return $entries
-}
 
 $all = @(Get-ModelCatalog -Path $Config)
 
@@ -201,20 +138,6 @@ $tiered = $big.Key -ne $small.Key
 
 # One value out of one [model.<key>] section, or empty. Credentials are read
 # here and nowhere else, so no formatting path can reach one.
-function Get-SectionValue {
-    param([string]$Path, [string]$Key, [string]$Field)
-    $cur = $false
-    foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
-        if ($line -match '^\s*\[model\.([^\]]+)\]') {
-            $cur = (($Matches[1].Trim().Trim('"').Trim("'")) -ceq $Key)
-            continue
-        }
-        if ($line -match '^\s*\[') { $cur = $false; continue }
-        if (-not $cur) { continue }
-        if ($line -match ('^\s*' + [regex]::Escape($Field) + '\s*=')) { return (Get-TomlValue $line) }
-    }
-    return ''
-}
 
 # GET one endpoint. Returns the HTTP status (0 = nothing answered) and the
 # body. Never throws: an unreachable server is a result, not an error.
@@ -234,26 +157,9 @@ function Invoke-ModelsRequest {
     }
 }
 
-function Get-ServedModelId {
-    param([string]$Body)
-    if (-not $Body) { return @() }
-    try { $json = $Body | ConvertFrom-Json -ErrorAction Stop } catch { return @() }
-    return @($json.data | ForEach-Object { $_.id } | Where-Object { $_ })
-}
 
 # vLLM answers with max_model_len; LM Studio and Ollama report nothing at all,
 # which is why a missing value is silence rather than a complaint.
-function Get-ServedContext {
-    param([string]$Body, [string]$WireId)
-    if (-not $Body) { return $null }
-    try { $json = $Body | ConvertFrom-Json -ErrorAction Stop } catch { return $null }
-    $m = @($json.data | Where-Object { $_.id -ceq $WireId })
-    if ($m.Count -eq 0) { return $null }
-    foreach ($f in @('max_model_len', 'loaded_context_length')) {
-        if ($m[0].PSObject.Properties[$f] -and $m[0].$f) { return [long]$m[0].$f }
-    }
-    return $null
-}
 
 # The roles a catalog key is about to be handed, for reporting only.
 function Get-RolesFor {
@@ -287,8 +193,8 @@ function Get-ProbeReport {
             $res = $cache[$e.Url]
         } else {
             $auth = ''
-            if ((Get-SectionValue -Path $Config -Key $e.Key -Field 'no_auth') -cne 'true') {
-                $auth = Get-SectionValue -Path $Config -Key $e.Key -Field 'api_key'
+            if (-not ((Get-ProbeSectionValue -Path $Config -Key $e.Key -Field 'no_auth') -ceq 'true')) {
+                $auth = Get-ProbeSectionValue -Path $Config -Key $e.Key -Field 'api_key'
             }
             $res = Invoke-ModelsRequest -Url (($e.Url.TrimEnd('/')) + '/models') -Auth $auth
             $cache[$e.Url] = $res

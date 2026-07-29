@@ -127,6 +127,10 @@ rewrite your mapping; it gets reported instead. And off-box endpoints are not
 contacted at all without `--include-remote`, for the same reason they are not
 assigned.
 
+`--probe` exists to sanity-check a block you are about to paste. For a
+standalone health check with exit codes, role attribution and context
+comparison, use [the doctor](#check-the-fleet-before-a-long-run) instead.
+
 The generated `[subagents.models]` pins beat each agent's own `model:`
 frontmatter, so this is how you retarget the agents without editing their
 files.
@@ -143,8 +147,8 @@ tools/doctor.sh --generate   # also send one completion per model
 ```
 
 ```powershell
-.	ools\doctor.ps1
-.	ools\doctor.ps1 -Generate
+.\tools\doctor.ps1
+.\tools\doctor.ps1 -Generate
 ```
 
 ```
@@ -242,9 +246,10 @@ home/               mirrors what lands in ~/.axon/
   hooks/            secret-scan.json + format-on-edit.json + bin/ (sh + ps1)
 config/
   config.toml.snippet
-tools/              gen-roles.sh / .ps1 -- role preset generator (not installed)
-  lib/              probe.sh / Probe.ps1 -- shared catalog + endpoint probing
-                    doctor.sh / .ps1 -- fleet health check (not installed)
+tools/              not installed -- run these from the checkout
+  gen-roles.sh / .ps1   prints a [models] + [subagents.models] block
+  doctor.sh / .ps1      checks the fleet your config names is actually there
+  lib/                  probe.sh / Probe.ps1 -- shared catalog + endpoint probing
 tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
 ```

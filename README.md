@@ -20,6 +20,8 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **`/audit` skill** | `~/.axon/skills/audit/` | Whole-codebase health check: fans out read-only agents across dimensions (security, secrets, deps, dead code, error handling, tests, licensing), dedupes and ranks findings, writes a prioritized report to `.axon/audits/`. Never edits — hand fixes to `/ultrawork` after |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
+| **subagent telemetry hook** (opt-in) | `~/.axon/hooks/` | SubagentStop hook that appends one line per finished subagent to `~/.axon/telemetry/subagents.jsonl` — role, model, exit status, duration, context used, turns, tool calls. Never blocks, never leaves your machine, records no prompt text; installed only with `--with-telemetry` / `-WithTelemetry` |
+| **Subagent report** | stays in this repo | `tools/subagents.sh` / `.ps1` — turns that log into per-role measurements: which roles fail, how long they take, and how close each one came to filling its model's context window |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
 | **Fleet doctor** | stays in this repo | `tools/doctor.sh` / `.ps1` — checks that the models your config names are actually up, serving what you think, and honest about their context window. Exits non-zero when a role's model is broken |
 | **Role preset generator** | stays in this repo | `tools/gen-roles.sh` / `.ps1` — reads the models you already have and prints a `[models]` + `[subagents.models]` block wiring each agent to a sensible one. Prints only; never writes your config |
@@ -179,6 +181,68 @@ what a listing cannot: whether reasoning is leaking into the reply text. It is
 opt-in because it costs a round trip per model, and because the first
 completion against an idle server can trigger a model load.
 
+## See what your roles actually did
+
+`gen-roles` assigns roles to models by reading parameter counts out of their
+names, and says so in its own output: **SUGGESTIONS, not measurements**. This
+is the other half — it measures.
+
+Install the hook, which is opt-in because it writes a file as you work:
+
+```sh
+./install.sh --with-telemetry
+```
+
+```powershell
+.\install.ps1 -WithTelemetry
+```
+
+From then on every finished subagent appends one line to
+`~/.axon/telemetry/subagents.jsonl`. Read it back with:
+
+```sh
+tools/subagents.sh                 # every role
+tools/subagents.sh --role executor # one role
+tools/subagents.sh --quiet         # only problems, for a script
+```
+
+```powershell
+.\tools\subagents.ps1
+.\tools\subagents.ps1 -Role executor
+```
+
+```
+oh-my-axon subagents -- 42 run(s) across 4 role(s) from ~/.axon/telemetry/subagents.jsonl
+Smallest run recorded: 6.8k of context. That is close to the fixed cost of a spawn, before a subagent does any work.
+
+  ROLE       MODEL      RUNS   OK/FAIL/CANC   MED DUR  TURNS/CALLS   PEAK CTX  OF WINDOW
+  scout      gemma        18         18/0/0      6.1s          1/0       7.4k         6%
+  executor   laguna       15         13/2/0        41s          9/6     120.0k        92%
+  architect  laguna        6          6/0/0        22s          4/1      31.2k        24%
+  reviewer   laguna        3          3/0/0        18s          3/2      18.4k        14%
+
+Problems:
+executor failed 2 of 15 run(s). Most recent error: connection refused
+executor peaked at 120.0k of laguna's 131.1k window (92%). Axon compacts at 85%,
+so this role was compacting mid-run: give it a model with more room, or split the task.
+```
+
+Two things that table is good for. **`OF WINDOW`** is the one that changes a
+config: Axon compacts at 85% of the window, so a role sitting above that is
+spending its turns summarising itself instead of working. And `scout` never
+passing 7.4k against a floor of 6.8k says that role is almost entirely fixed
+overhead — a smaller model would serve it just as well.
+
+It exits **1** when it has something to report, so it works in a script.
+
+**What it deliberately does not print is tokens per second.** The `tokensUsed`
+Axon reports is the subagent's *final context size*, not the number of tokens
+it generated: a one-word reply still reports ~6.9k, because that is the system
+prompt and the tool schemas. Divide that by elapsed time and you get a figure
+that looks like throughput and measures nothing — on a local 120B it comes out
+near 1300 "tok/s". Context pressure and latency are what this data supports,
+so those are what it reports.
+
 ## Tune it to your model class
 
 Local doesn't mean small. oh-my-axon's defaults are safe on anything, but
@@ -236,6 +300,14 @@ no telemetry, no cloud services, no MCP servers that leave your machine. The
 secret-scan hook runs entirely locally. With only local models configured,
 `[features] remote_fetch = false` makes startup fully offline.
 
+The subagent telemetry hook is the one thing here that writes a file as you
+work, which is why it is opt-in. What it records is measurements — role, model,
+exit status, duration, token counts — and deliberately not the subagent's
+`description`, which is derived from what you asked for. It is a plain JSONL
+file at `~/.axon/telemetry/subagents.jsonl`: read it, and delete it whenever
+you like. Uninstalling leaves it in place rather than throwing your data away,
+and says so.
+
 ## Layout
 
 ```
@@ -243,12 +315,14 @@ home/               mirrors what lands in ~/.axon/
   agents/           *.md (YAML frontmatter + system prompt body)
   personas/         *.toml
   skills/           ultrawork/, plan/, handoff/, audit/
-  hooks/            secret-scan.json + format-on-edit.json + bin/ (sh + ps1)
+  hooks/            secret-scan.json + format-on-edit.json
+                    + subagent-telemetry.json + bin/ (sh + ps1)
 config/
   config.toml.snippet
 tools/              not installed -- run these from the checkout
   gen-roles.sh / .ps1   prints a [models] + [subagents.models] block
   doctor.sh / .ps1      checks the fleet your config names is actually there
+  subagents.sh / .ps1   reports what the telemetry hook recorded
   lib/                  probe.sh / Probe.ps1 -- shared catalog + endpoint probing
 tests/              smoke tests (sh + ps1) and structure validation
 install.sh / install.ps1
@@ -266,6 +340,7 @@ sh tests/smoke-install.sh            # dry run -> install -> backup -> uninstall
 sh tests/smoke-hooks.sh              # payload in, decision out
 sh tests/smoke-gen-roles.sh          # role assignment, off-box exclusion, probe, determinism
 sh tests/smoke-doctor.sh             # UP/STALE/AUTH/DOWN, context drift, exit codes
+sh tests/smoke-subagents.sh          # telemetry records, context-pressure findings
 python3 tests/validate_structure.py  # frontmatter, hook JSON, installer agreement
 ```
 
@@ -274,6 +349,7 @@ pwsh -File tests\smoke-install.ps1
 pwsh -File tests\smoke-hooks.ps1
 pwsh -File tests\smoke-gen-roles.ps1
 pwsh -File tests\smoke-doctor.ps1
+pwsh -File tests\smoke-subagents.ps1
 ```
 
 The installer tests run against a throwaway `AXON_HOME` and refuse to start

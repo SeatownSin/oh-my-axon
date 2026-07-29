@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__OMA_TELEMETRY_CMD__",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

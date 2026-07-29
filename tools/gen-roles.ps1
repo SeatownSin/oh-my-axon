@@ -26,7 +26,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.4'
+$OmaVersion = '0.1.5'
 
 # Shared catalog + endpoint probing, also used by doctor. Resolved relative to
 # this script so the tool still runs from any cwd inside a checkout.

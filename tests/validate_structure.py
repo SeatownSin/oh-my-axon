@@ -148,7 +148,21 @@ def check_skills():
 
 def check_hooks():
     print("\nhook descriptors")
-    valid_events = {"PreToolUse", "PostToolUse"}
+    # The events Axon dispatches, under their canonical names. SubagentEnd is
+    # deliberately absent: Axon accepts it as an alias, but only since 0.3.5 --
+    # before that a hook registered under it landed in a bucket nothing fired
+    # and never ran, silently. SubagentStop is the name to write.
+    valid_events = {
+        "SessionStart",
+        "SessionEnd",
+        "PreToolUse",
+        "PostToolUse",
+        "PreCompact",
+        "SubagentStop",
+        "Stop",
+        "UserPromptSubmit",
+        "Notification",
+    }
     for path in sorted((HOME / "hooks").glob("*.json")):
         rel = path.relative_to(REPO)
         try:
@@ -264,6 +278,15 @@ def check_readme(agent_names, skill_names):
     for name in skill_names:
         check(f"README mentions skill {name}", f"/{name}" in readme,
               "shipped but undocumented")
+
+    # A literal tab where `\t` was meant. This has happened more than once,
+    # always the same way: a Windows path like `.\tools\doctor.ps1` written
+    # through something that interprets the escape, leaving `.` + TAB +
+    # `ools\doctor.ps1`. It renders as innocent whitespace and passes every
+    # other check here, and the command it documents cannot be copied.
+    tab_lines = [i for i, line in enumerate(readme.splitlines(), 1) if "\t" in line]
+    check("README contains no literal tabs", not tab_lines,
+          f"tabs on line(s) {tab_lines} -- a mangled \\t in a Windows path?")
 
 
 def main():

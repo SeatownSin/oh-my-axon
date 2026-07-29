@@ -1,6 +1,7 @@
 ﻿# oh-my-axon installer (Windows).
 #
 #   .\install.ps1              install into $env:AXON_HOME (default ~\.axon)
+#   .\install.ps1 -WithTelemetry  also install the subagent telemetry hook
 #   .\install.ps1 -DryRun      print what an install writes, and write nothing
 #   .\install.ps1 -Uninstall   remove exactly what a previous install put there
 #   .\install.ps1 -Help        list every flag
@@ -13,10 +14,10 @@
 # refuse unknown arguments by hand to reach the same behaviour.
 [CmdletBinding()]
 param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook,
-      [switch]$Version, [switch]$Help)
+      [switch]$WithTelemetry, [switch]$Version, [switch]$Help)
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.4'
+$OmaVersion = '0.1.5'
 
 # Failures go straight to stderr rather than through Write-Error, which
 # reflows a multi-line message to the console width. See tools/gen-roles.ps1.
@@ -32,6 +33,7 @@ oh-my-axon installer.
 
   .\install.ps1                    install into ~\.axon
   .\install.ps1 -WithFormatHook    also install the opt-in format-on-edit hook
+  .\install.ps1 -WithTelemetry     also record subagent runs to a local log
   .\install.ps1 -DryRun            show what an install does, write nothing
   .\install.ps1 -Uninstall         remove the files listed in the manifest
   .\install.ps1 -Version           print the version
@@ -57,11 +59,17 @@ if ($Uninstall) {
     Remove-Item -Force $Manifest
     # Children before parents: a directory is only removed when it is empty,
     # so skills\* has to go before skills itself gets a chance.
-    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'skills', 'hooks\bin', 'hooks', 'agents', 'personas') {
+    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'skills', 'hooks\bin', 'hooks\lib', 'hooks', 'telemetry', 'agents', 'personas') {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }
     Write-Host "oh-my-axon: removed from $AxonHome."
+    # Measurements you recorded are yours, and are not the installer's to throw
+    # away. Say where they are rather than deleting them quietly.
+    if (Test-Path (Join-Path $AxonHome 'telemetry\subagents.jsonl')) {
+        Write-Host "  Your subagent telemetry log is still at $(Join-Path $AxonHome 'telemetry')."
+        Write-Host '  Delete it by hand if you want it gone.'
+    }
     exit 0
 }
 
@@ -82,7 +90,10 @@ if ($DryRun) {
         $_.Name -ne 'secret-scan.json' -and
         $_.Name -ne 'format-on-edit.json' -and
         $_.Name -ne 'format-on-edit.sh' -and
-        $_.Name -ne 'format-on-edit.ps1'
+        $_.Name -ne 'format-on-edit.ps1' -and
+        $_.Name -ne 'subagent-telemetry.json' -and
+        $_.Name -ne 'subagent-telemetry.sh' -and
+        $_.Name -ne 'subagent-telemetry.ps1'
     } | ForEach-Object {
         $rel = $_.FullName.Substring($HomeSrc.Length + 1) -replace '\\', '/'
         Write-Host "  would install: $rel"
@@ -97,6 +108,13 @@ if ($DryRun) {
         Write-Host "  would install: hooks/format-on-edit.json (templated for this platform)"
         Write-Host "  would install: hooks/bin/format-on-edit.sh"
         Write-Host "  would install: hooks/bin/format-on-edit.ps1"
+    }
+    if ($WithTelemetry) {
+        Write-Host "  would install: hooks/subagent-telemetry.json (templated for this platform)"
+        Write-Host "  would install: hooks/bin/subagent-telemetry.sh"
+        Write-Host "  would install: hooks/bin/subagent-telemetry.ps1"
+        Write-Host "  would install: hooks/lib/probe.sh"
+        Write-Host "  would install: hooks/lib/Probe.ps1"
     }
     Write-Host "  would write:   .oh-my-axon-manifest"
     exit 0
@@ -126,7 +144,10 @@ Get-ChildItem $HomeSrc -Recurse -File | Where-Object {
     $_.Name -ne 'secret-scan.json' -and
     $_.Name -ne 'format-on-edit.json' -and
     $_.Name -ne 'format-on-edit.sh' -and
-    $_.Name -ne 'format-on-edit.ps1'
+    $_.Name -ne 'format-on-edit.ps1' -and
+    $_.Name -ne 'subagent-telemetry.json' -and
+    $_.Name -ne 'subagent-telemetry.sh' -and
+    $_.Name -ne 'subagent-telemetry.ps1'
 } | ForEach-Object {
     $rel = $_.FullName.Substring($HomeSrc.Length + 1)
     Install-OmaFile $_.FullName $rel
@@ -157,6 +178,25 @@ if ($WithFormatHook) {
     $installed += 'hooks\format-on-edit.json'
     Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\format-on-edit.sh') 'hooks\bin\format-on-edit.sh'
     Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\format-on-edit.ps1') 'hooks\bin\format-on-edit.ps1'
+}
+
+if ($WithTelemetry) {
+    # 2c. Subagent telemetry hook. The shared catalog parser is installed beside
+    #     it because the hook resolves each role's model as it writes the record:
+    #     a log outlives the config that produced it, so a record that needs a
+    #     mutable file to be read is a misattribution waiting to happen.
+    $scriptPathTel = (Join-Path $AxonHome 'hooks\bin\subagent-telemetry.ps1') -replace '\\', '/'
+    $cmdTel = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$scriptPathTel`""
+    $jsonSrcTel = Join-Path $HomeSrc 'hooks\subagent-telemetry.json'
+    $hookDestTel = Join-Path $AxonHome 'hooks\subagent-telemetry.json'
+    New-Item -ItemType Directory -Force (Split-Path $hookDestTel -Parent) | Out-Null
+    (Get-Content $jsonSrcTel -Raw) -replace '__OMA_TELEMETRY_CMD__', ($cmdTel -replace '"', '\"') |
+        Set-Content -NoNewline $hookDestTel
+    $installed += 'hooks\subagent-telemetry.json'
+    Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\subagent-telemetry.sh') 'hooks\bin\subagent-telemetry.sh'
+    Install-OmaFile (Join-Path $HomeSrc 'hooks\bin\subagent-telemetry.ps1') 'hooks\bin\subagent-telemetry.ps1'
+    Install-OmaFile (Join-Path $SrcDir 'tools\lib\probe.sh') 'hooks\lib\probe.sh'
+    Install-OmaFile (Join-Path $SrcDir 'tools\lib\Probe.ps1') 'hooks\lib\Probe.ps1'
 }
 
 # 3. Manifest for clean uninstall (relative paths, forward slashes).

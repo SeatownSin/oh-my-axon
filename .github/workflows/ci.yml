@@ -74,6 +74,8 @@ jobs:
         run: sh tests/smoke-gen-roles.sh
       - name: Fleet doctor
         run: sh tests/smoke-doctor.sh
+      - name: Subagent telemetry
+        run: sh tests/smoke-subagents.sh
 
   smoke-windows:
     name: smoke (windows)
@@ -94,3 +96,6 @@ jobs:
       - name: Fleet doctor
         shell: pwsh
         run: pwsh -NoProfile -File tests/smoke-doctor.ps1
+      - name: Subagent telemetry
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/smoke-subagents.ps1

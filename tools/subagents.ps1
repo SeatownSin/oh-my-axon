@@ -11,10 +11,16 @@
 # names, and says so: SUGGESTIONS, not measurements. This reports what actually
 # happened, from the SubagentStop hook's log, so the guess can be checked.
 #
-# What it will not tell you is tokens per second. The `tokensUsed` Axon reports
-# is the subagent's final context size, not the number of tokens it generated --
-# dividing it by the elapsed time yields a number that looks like throughput and
-# measures nothing. Context pressure and latency are what this data supports.
+# TOK/S is generated tokens over time spent in the API, both read from the
+# child's own billing ledger (Axon 0.3.6+). It is never derived from
+# `tokensUsed`, which is the subagent's final CONTEXT size rather than anything
+# it produced -- dividing that by elapsed time yields a throughput-shaped number
+# that measures nothing, and it is why this column did not exist before.
+#
+# Runs that generated less than 100 tokens are left out of the rate. At that size
+# the API time is nearly all prefill, so the figure describes how long the prompt
+# took to read, not how fast the model writes. Excluded runs are always counted
+# out loud rather than dropped quietly.
 #
 # Exit codes: 0 nothing to flag, 1 at least one problem, 2 usage error.
 [CmdletBinding()]
@@ -28,7 +34,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.5'
+$OmaVersion = '0.1.6'
+
+# Below this many generated tokens a rate is prefill, not throughput.
+$MinOutputTokens = 100
 . (Join-Path $PSScriptRoot 'lib/Probe.ps1')
 
 # Failures go straight to stderr rather than through Write-Error, which reflows
@@ -51,9 +60,10 @@ oh-my-axon subagent report.
   .\tools\subagents.ps1 -Version      print the version
   .\tools\subagents.ps1 -Help         print this text
 
-This does not report tokens per second. Axon's `tokensUsed` is the subagent's
-final context size, not what it generated, so dividing by elapsed time measures
-nothing. Context pressure and latency are what this data supports.
+TOK/S comes from the child's own ledger (Axon 0.3.6+): generated tokens over
+time spent in the API. It is never derived from `tokensUsed`, which is the
+subagent's final context size rather than anything it produced. Runs that
+generated too little to measure are excluded and counted out loud.
 
 Exit codes: 0 nothing to flag, 1 at least one problem, 2 usage error.
 '@
@@ -99,9 +109,22 @@ if (Test-Path -LiteralPath $Config -PathType Leaf) {
     }
 }
 
+function Get-MedianDouble {
+    param([double[]]$Values)
+    # An explicit count test, never `-not $Values`: a one-element array holding 0
+    # unwraps to a falsy scalar, so that form reports "no data" for a real zero.
+    if ($null -eq $Values -or $Values.Count -eq 0) { return $null }
+    $s = @($Values | Sort-Object)
+    $n = $s.Count
+    if ($n % 2) { return [double]$s[($n - 1) / 2] }
+    return ([double]$s[$n / 2 - 1] + [double]$s[$n / 2]) / 2
+}
+
 function Get-Median {
     param([long[]]$Values)
-    if (-not $Values -or $Values.Count -eq 0) { return $null }
+    # See Get-MedianDouble: `-not $Values` is wrong for a lone 0, which turned a
+    # role whose single run made 0 tool calls into "-" instead of "0".
+    if ($null -eq $Values -or $Values.Count -eq 0) { return $null }
     $s = @($Values | Sort-Object)
     $n = $s.Count
     if ($n % 2) { return [double]$s[($n - 1) / 2] }
@@ -151,6 +174,8 @@ foreach ($file in $logFiles) {
                 Tokens = [System.Collections.Generic.List[long]]::new()
                 Turns = [System.Collections.Generic.List[long]]::new()
                 Calls = [System.Collections.Generic.List[long]]::new()
+                Rates = [System.Collections.Generic.List[double]]::new()
+                Thin = 0; NoLedger = 0; ShortBilled = 0; CfgAttr = 0; Incomplete = 0
                 Peak = 0L
             }
         }
@@ -188,6 +213,29 @@ foreach ($file in $logFiles) {
             if ($t -gt $r.Peak) { $r.Peak = $t }
             if ($null -eq $globalFloor -or $t -lt $globalFloor) { $globalFloor = $t }
         }
+
+        # Generated tokens over API time, from the child ledger. Kept as a rate
+        # per run and then taken at the median, rather than one ratio of two
+        # grand totals: a single long run would otherwise decide the figure for a
+        # role that is mostly short ones.
+        $out = if ($null -ne $rec.outputTokens) { [long]$rec.outputTokens } else { 0L }
+        $api = if ($null -ne $rec.apiDurationMs) { [long]$rec.apiDurationMs } else { 0L }
+        $mCount = if ($null -ne $rec.modelCount) { [int]$rec.modelCount } else { 0 }
+        $shortBill = [bool]$rec.usageIncomplete
+        if ($shortBill) { $r.Incomplete++ }
+        if ($mCount -eq 0) {
+            $r.NoLedger++
+        } elseif ($shortBill) {
+            # Excluded on purpose. An under-counted numerator over a full
+            # denominator understates the rate, and a quietly low number is worse
+            # than none.
+            $r.ShortBilled++
+        } elseif ($out -ge $MinOutputTokens -and $api -gt 0) {
+            $r.Rates.Add(($out * 1000.0) / $api)
+        } else {
+            $r.Thin++
+        }
+        if ([string]$rec.modelSource -eq 'config') { $r.CfgAttr++ }
     }
 }
 
@@ -203,8 +251,9 @@ if ($total -eq 0) {
     }
 } else {
     if (-not $Quiet) {
-        $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,10} {7,10}' -f
-            'ROLE', 'MODEL', 'RUNS', 'OK/FAIL/CANC', 'MED DUR', 'TURNS/CALLS', 'PEAK CTX', 'OF WINDOW'))
+        $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
+            'ROLE', 'MODEL', 'RUNS', 'OK/FAIL/CANC', 'MED DUR', 'TURNS/CALLS',
+            'TOK/S', 'PEAK CTX', 'OF WINDOW'))
     }
 
     $notedWindow = @{}
@@ -234,13 +283,18 @@ if ($total -eq 0) {
         $pct = if ($null -ne $pctNum) { '{0}%' -f [int][math]::Round($pctNum) } else { '-' }
 
         if (-not $Quiet) {
-            $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,10} {7,10}' -f
+            $mRate = Get-MedianDouble $r.Rates.ToArray()
+            $rateStr = if ($null -eq $mRate) { '-' }
+                       elseif ($mRate -ge 10) { '{0}' -f [int][math]::Floor($mRate + 0.5) }
+                       else { '{0:0.0}' -f $mRate }
+            $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
                 $name.Substring(0, [math]::Min(10, $name.Length)),
                 $label.Substring(0, [math]::Min(10, $label.Length)),
                 $r.Runs,
                 ('{0}/{1}/{2}' -f $r.Ok, $r.Bad, $r.Canc),
                 (Format-Duration (Get-Median $r.Durations.ToArray())),
                 ('{0}/{1}' -f (Format-Count (Get-Median $r.Turns.ToArray())), (Format-Count (Get-Median $r.Calls.ToArray()))),
+                $rateStr,
                 (Format-TokenCount $(if ($r.Peak -gt 0) { $r.Peak } else { $null })),
                 $pct))
         }
@@ -274,6 +328,38 @@ if ($total -eq 0) {
         if ($latest -and -not $inCatalog.ContainsKey($latest)) {
             $notes.Add(('{0} ran on "{1}", which is not in your catalog now, so there is no window to measure its context against. Those numbers describe a model you have since renamed or removed.' -f
                 $name, $latest))
+        }
+        # Every run left out of TOK/S is named. A rate over an unstated subset is
+        # the same failure as a rate over the wrong number.
+        $excluded = $r.Thin + $r.NoLedger + $r.ShortBilled
+        if ($excluded -gt 0) {
+            $why = ''
+            if ($r.Thin -gt 0) {
+                $why += '; {0} had too little generation to time, where API time is nearly all prefill (the bar is {1} tokens)' -f $r.Thin, $MinOutputTokens
+            }
+            if ($r.NoLedger -gt 0) {
+                $why += '; {0} with no ledger (Axon before 0.3.6)' -f $r.NoLedger
+            }
+            if ($r.ShortBilled -gt 0) {
+                $why += '; {0} reported a short bill, which would understate the rate' -f $r.ShortBilled
+            }
+            if ($r.Rates.Count -eq 0) {
+                $notes.Add(('{0} has no TOK/S -- every run was excluded{1}.' -f $name, $why))
+            } else {
+                $notes.Add(('{0} computed TOK/S from {1} of {2} run(s){3}.' -f $name, $r.Rates.Count, $r.Runs, $why))
+            }
+        }
+        # An authoritative name comes from the child itself. A name resolved from
+        # config is only as current as the config.
+        if ($r.CfgAttr -gt 0) {
+            $notes.Add(('{0} had the model resolved from config on {1} of {2} run(s), not reported by Axon. Those names are right only if the config has not changed since.' -f
+                $name, $r.CfgAttr, $r.Runs))
+        }
+        if ($r.Incomplete -gt 0) {
+            $notes.Add(('{0} reported an incomplete bill on {1} run(s), so its token totals are a floor rather than a count.' -f $name, $r.Incomplete))
+        }
+        if ($nModels -gt 1 -and $r.Rates.Count -gt 0) {
+            $notes.Add(('{0} mixes {1} models, so its TOK/S is a median across different machines rather than the speed of any one of them.' -f $name, $nModels))
         }
         # Once per model, not once per role that happens to use it.
         if ($assumed -and $null -ne $pctNum -and $pctNum -lt 85 -and -not $notedWindow.ContainsKey($latest)) {

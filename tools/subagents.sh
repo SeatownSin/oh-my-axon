@@ -12,15 +12,24 @@
 # names, and says so: SUGGESTIONS, not measurements. This reports what actually
 # happened, from the SubagentStop hook's log, so the guess can be checked.
 #
-# What it will not tell you is tokens per second. The `tokensUsed` Axon reports
-# is the subagent's final context size, not the number of tokens it generated --
-# dividing it by the elapsed time yields a number that looks like throughput and
-# measures nothing. Context pressure and latency are what this data supports.
+# TOK/S is generated tokens over time spent in the API, both read from the
+# child's own billing ledger (Axon 0.3.6+). It is never derived from
+# `tokensUsed`, which is the subagent's final CONTEXT size rather than anything
+# it produced -- dividing that by elapsed time yields a throughput-shaped number
+# that measures nothing, and it is why this column did not exist before.
+#
+# Runs that generated less than MIN_OUTPUT_TOKENS are left out of the rate. At
+# that size the API time is nearly all prefill, so the figure describes how long
+# the prompt took to read, not how fast the model writes. Excluded runs are
+# always counted out loud rather than dropped quietly.
 #
 # Exit codes: 0 nothing to flag, 1 at least one problem, 2 usage error.
 set -eu
 
-OMA_VERSION="0.1.5"
+# Below this many generated tokens a rate is prefill, not throughput.
+MIN_OUTPUT_TOKENS=100
+
+OMA_VERSION="0.1.6"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
 LOG="$AXON_HOME/telemetry/subagents.jsonl"
 CONFIG="$AXON_HOME/config.toml"
@@ -32,7 +41,7 @@ TOOLS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$TOOLS_DIR/lib/probe.sh"
 
 usage() {
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -101,7 +110,8 @@ if [ -f "$CONFIG" ]; then
 fi
 
 # shellcheck disable=SC2016
-REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CATALOG" '
+REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CATALOG" \
+             -v minout="$MIN_OUTPUT_TOKENS" '
     # One value out of one flat record, by key rather than by position, so a
     # record written by an older version still reads correctly.
     function jval(line, key,   pat, s, q) {
@@ -153,7 +163,17 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
         role = jval($0, "subagentType")
         if (role == "") next
         if (want != "" && role != want) next
-        if (!(role in runs)) { order[++nroles] = role }
+        if (!(role in runs)) {
+            order[++nroles] = role
+            # Created up front, not sprung into existence by a later `++`.
+            # Leaving these to be auto-created made gawk 5.2.1 corrupt its heap
+            # and die with "internal error: segfault" -- while mawk, which is
+            # what CI runs, was perfectly happy. Do not "simplify" this away:
+            # the failure it prevents is invisible on Ubuntu and fatal on any
+            # gawk system (Fedora, RHEL, Homebrew).
+            thin[role] = 0; noledger[role] = 0; shortbilled[role] = 0
+            cfgattr[role] = 0; incomp[role] = 0; nr[role] = 0
+        }
         runs[role]++
         total++
 
@@ -183,6 +203,29 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
         if (tc != "") { tcs[role, ++nc[role]] = tc + 0 }
         tn = jval($0, "turns")
         if (tn != "") { tns[role, ++nn[role]] = tn + 0 }
+
+        # Generated tokens over API time, from the child ledger. Kept as a rate
+        # per run and then taken at the median, rather than one ratio of two
+        # grand totals: a single long run would otherwise decide the figure for
+        # a role that is mostly short ones.
+        ot = jval($0, "outputTokens")
+        ad = jval($0, "apiDurationMs")
+        mcount = jval($0, "modelCount")
+        short_bill = (jval($0, "usageIncomplete") == "true")
+        if (short_bill) { incomp[role]++ }
+        if (mcount == "" || mcount + 0 == 0) {
+            noledger[role]++
+        } else if (short_bill) {
+            # Excluded on purpose. An under-counted numerator over a full
+            # denominator understates the rate, and a quietly low number is
+            # worse than none.
+            shortbilled[role]++
+        } else if (ot + 0 >= minout && ad + 0 > 0) {
+            rates[role, ++nr[role]] = (ot + 0) * 1000.0 / (ad + 0)
+        } else {
+            thin[role]++
+        }
+        if (jval($0, "modelSource") == "config") { cfgattr[role]++ }
     }
 
     END {
@@ -200,8 +243,9 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
             if (gfloor > 0) {
                 printf "HEAD2\tSmallest run recorded: %s of context. That is close to the fixed cost of a spawn, before a subagent does any work.\n", toks(gfloor)
             }
-            printf "ROW\t%-10s %-10s %5s %14s %9s %12s %10s %10s\n", \
-                "ROLE", "MODEL", "RUNS", "OK/FAIL/CANC", "MED DUR", "TURNS/CALLS", "PEAK CTX", "OF WINDOW"
+            printf "ROW\t%-10s %-10s %5s %14s %9s %12s %8s %10s %10s\n", \
+                "ROLE", "MODEL", "RUNS", "OK/FAIL/CANC", "MED DUR", "TURNS/CALLS", \
+                "TOK/S", "PEAK CTX", "OF WINDOW"
         }
 
         for (i = 1; i <= nroles; i++) {
@@ -230,12 +274,16 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
                 for (j = 1; j <= nn[r]; j++) ntmp[j] = tns[r, j]
                 for (j = 1; j <= nc[r]; j++) ctmp[j] = tcs[r, j]
                 mt = median(ntmp, nn[r]); mc = median(ctmp, nc[r])
-                printf "ROW\t%-10s %-10s %5d %14s %9s %12s %10s %10s\n", \
+                for (j = 1; j <= nr[r]; j++) rtmp[j] = rates[r, j]
+                mrate = median(rtmp, nr[r])
+                rate_s = (mrate < 0) ? "-" : \
+                    ((mrate >= 10) ? sprintf("%d", int(mrate + 0.5)) : sprintf("%.1f", mrate))
+                printf "ROW\t%-10s %-10s %5d %14s %9s %12s %8s %10s %10s\n", \
                     substr(r, 1, 10), substr(label, 1, 10), runs[r], \
                     sprintf("%d/%d/%d", ok[r] + 0, bad[r] + 0, canc[r] + 0), \
                     dur(median(dtmp, nd[r])), \
                     sprintf("%s/%s", (mt < 0 ? "-" : sprintf("%g", mt)), (mc < 0 ? "-" : sprintf("%g", mc))), \
-                    toks(peak[r] > 0 ? peak[r] : -1), pct
+                    rate_s, toks(peak[r] > 0 ? peak[r] : -1), pct
             }
 
             # Axon compacts at 85% of the window, so a role that got that high
@@ -265,6 +313,38 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
             }
             if (nmodels >= 1 && !(ms[nmodels] in incat)) {
                 printf "NOTE\t%s ran on \"%s\", which is not in your catalog now, so there is no window to measure its context against. Those numbers describe a model you have since renamed or removed.\n", r, ms[nmodels]
+            }
+            # Every run left out of TOK/S is named. A rate over an unstated
+            # subset is the same failure as a rate over the wrong number.
+            excluded = thin[r] + noledger[r] + shortbilled[r]
+            if (excluded > 0) {
+                why = ""
+                if (thin[r] > 0) {
+                    why = why sprintf("; %d had too little generation to time, where API time is nearly all prefill (the bar is %d tokens)", thin[r], minout)
+                }
+                if (noledger[r] > 0) {
+                    why = why sprintf("; %d with no ledger (Axon before 0.3.6)", noledger[r])
+                }
+                if (shortbilled[r] > 0) {
+                    why = why sprintf("; %d reported a short bill, which would understate the rate", shortbilled[r])
+                }
+                if (nr[r] == 0) {
+                    printf "NOTE\t%s has no TOK/S -- every run was excluded%s.\n", r, why
+                } else {
+                    printf "NOTE\t%s computed TOK/S from %d of %d run(s)%s.\n", r, nr[r], runs[r], why
+                }
+            }
+            # An authoritative name comes from the child itself. A name resolved
+            # from config is only as current as the config.
+            if (cfgattr[r] > 0) {
+                printf "NOTE\t%s had the model resolved from config on %d of %d run(s), not reported by Axon. Those names are right only if the config has not changed since.\n", \
+                    r, cfgattr[r], runs[r]
+            }
+            if (incomp[r] > 0) {
+                printf "NOTE\t%s reported an incomplete bill on %d run(s), so its token totals are a floor rather than a count.\n", r, incomp[r]
+            }
+            if (nmodels > 1 && nr[r] > 0) {
+                printf "NOTE\t%s mixes %d models, so its TOK/S is a median across different machines rather than the speed of any one of them.\n", r, nmodels
             }
             # Once per model, not once per role that happens to use it.
             if (assumed && peak[r] > 0 && peak[r] * 100 / w < 85 && !(ms[nmodels] in notedwin)) {

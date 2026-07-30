@@ -20,7 +20,7 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **`/audit` skill** | `~/.axon/skills/audit/` | Whole-codebase health check: fans out read-only agents across dimensions (security, secrets, deps, dead code, error handling, tests, licensing), dedupes and ranks findings, writes a prioritized report to `.axon/audits/`. Never edits — hand fixes to `/ultrawork` after |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
-| **subagent telemetry hook** (opt-in) | `~/.axon/hooks/` | SubagentStop hook that appends one line per finished subagent to `~/.axon/telemetry/subagents.jsonl` — role, model, exit status, duration, context used, turns, tool calls. Never blocks, never leaves your machine, records no prompt text; installed only with `--with-telemetry` / `-WithTelemetry` |
+| **subagent telemetry hook** (opt-in) | `~/.axon/hooks/` | SubagentStop hook that appends one line per finished subagent to `~/.axon/telemetry/subagents.jsonl` — role, model, exit status, duration, context used, turns, tool calls, and on Axon 0.3.6+ the per-model ledger (generated tokens and API time) that makes a real throughput figure possible. Never blocks, never leaves your machine, records no prompt text; installed only with `--with-telemetry` / `-WithTelemetry` |
 | **Subagent report** | stays in this repo | `tools/subagents.sh` / `.ps1` — turns that log into per-role measurements: which roles fail, how long they take, and how close each one came to filling its model's context window |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
 | **Fleet doctor** | stays in this repo | `tools/doctor.sh` / `.ps1` — checks that the models your config names are actually up, serving what you think, and honest about their context window. Exits non-zero when a role's model is broken |
@@ -215,11 +215,15 @@ tools/subagents.sh --quiet         # only problems, for a script
 oh-my-axon subagents -- 42 run(s) across 4 role(s) from ~/.axon/telemetry/subagents.jsonl
 Smallest run recorded: 6.8k of context. That is close to the fixed cost of a spawn, before a subagent does any work.
 
-  ROLE       MODEL      RUNS   OK/FAIL/CANC   MED DUR  TURNS/CALLS   PEAK CTX  OF WINDOW
-  scout      gemma        18         18/0/0      6.1s          1/0       7.4k         6%
-  executor   laguna       15         13/2/0        41s          9/6     120.0k        92%
-  architect  laguna        6          6/0/0        22s          4/1      31.2k        24%
-  reviewer   laguna        3          3/0/0        18s          3/2      18.4k        14%
+  ROLE       MODEL      RUNS   OK/FAIL/CANC   MED DUR  TURNS/CALLS    TOK/S   PEAK CTX  OF WINDOW
+  scout      gemma        18         18/0/0      6.1s          1/0        -       7.4k         6%
+  executor   laguna       15         13/2/0        41s          9/6       31     120.0k        92%
+  architect  laguna        6          6/0/0        22s          4/1       33      31.2k        24%
+  reviewer   laguna        3          3/0/0        18s          3/2       32      18.4k        14%
+
+Notes:
+scout has no TOK/S -- every run was excluded; 18 had too little generation to
+time, where API time is nearly all prefill (the bar is 100 tokens).
 
 Problems:
 executor failed 2 of 15 run(s). Most recent error: connection refused
@@ -235,13 +239,30 @@ overhead — a smaller model would serve it just as well.
 
 It exits **1** when it has something to report, so it works in a script.
 
-**What it deliberately does not print is tokens per second.** The `tokensUsed`
-Axon reports is the subagent's *final context size*, not the number of tokens
-it generated: a one-word reply still reports ~6.9k, because that is the system
-prompt and the tool schemas. Divide that by elapsed time and you get a figure
-that looks like throughput and measures nothing — on a local 120B it comes out
-near 1300 "tok/s". Context pressure and latency are what this data supports,
-so those are what it reports.
+**`TOK/S` is a real rate, and it took a fix in Axon to make one possible.**
+It is generated tokens over time spent in the API, both taken from the child's
+own billing ledger, which Axon reports to the hook from **0.3.6** onward. It is
+never derived from `tokensUsed` — that is the subagent's *final context size*,
+not what it produced: a one-word reply still reports ~6.9k, because that is the
+system prompt plus the tool schemas. Dividing it by elapsed time yields a
+figure that looks like throughput and measures nothing (on a local 120B it
+comes out near 1300 "tok/s"). That is why this column did not exist before.
+
+Two things it refuses to do, because either would produce a confident wrong
+number:
+
+- **Rates from tiny generations.** Below 100 generated tokens the API time is
+  nearly all prefill, so the figure describes how long the prompt took to read
+  rather than how fast the model writes. `scout` above is excluded for exactly
+  that reason, and the note says so — every excluded run is counted out loud.
+- **Rates from a short bill.** When Axon reports `usageIncomplete`, the token
+  count under-counts while the clock does not, so the rate would read low.
+  Those runs are left out and their totals are called a floor.
+
+On Axon before 0.3.6 there is no ledger to read, so the column stays empty and
+says why. Attribution falls back to your config in that case, and the report
+tells you when a model name came from config rather than from Axon — a
+config-derived name is only as current as the config.
 
 ## Tune it to your model class
 

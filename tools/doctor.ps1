@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.5'
+$OmaVersion = '0.1.6'
 . (Join-Path $PSScriptRoot 'lib/Probe.ps1')
 
 # Failures go straight to stderr rather than through Write-Error, which

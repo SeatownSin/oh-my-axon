@@ -51,48 +51,95 @@ function Format-Text {
 $type = Format-Text $obj.subagentType
 if (-not $type) { $type = 'unknown' }
 
-# Which model this role ran on, resolved now rather than at report time: a log
-# outlives the config that produced it, so a record that needs a mutable file to
-# be interpreted is a misattribution waiting to happen. The shared parser does
-# the reading; if it is absent the field is null, which the reporter handles.
+# The child's own billing ledger, one entry per model it called (Axon 0.3.6+).
+# Counts are summed, and the attributed model is whichever entry generated the
+# most, since that is the one that did the work.
+function ConvertTo-Long {
+    param($Value)
+    if ($null -eq $Value) { return 0L }
+    return [long]$Value
+}
+
+$uIn = 0L; $uOut = 0L; $uCalls = 0L; $uApi = 0L; $uCount = 0
+$uModel = ''
+$bestOut = -1L
+foreach ($entry in @($obj.usageByModel)) {
+    if ($null -eq $entry -or -not $entry.model) { continue }
+    $uCount++
+    $o = ConvertTo-Long $entry.outputTokens
+    $uIn += ConvertTo-Long $entry.inputTokens
+    $uOut += $o
+    $uCalls += ConvertTo-Long $entry.modelCalls
+    $uApi += ConvertTo-Long $entry.apiDurationMs
+    if ($o -gt $bestOut) { $bestOut = $o; $uModel = Format-Text $entry.model }
+}
+
+# A bill the child knows is short. Recorded so the reporter can call its totals a
+# floor instead of a measurement.
+$incomplete = if ($obj.usageIncomplete) { 'true' } else { 'false' }
+
+# Which model this role ran on. The payload's ledger wins outright when present:
+# it says what the child ACTUALLY called, where the config only says what it
+# should have. Resolving from config remains the fallback for Axon before 0.3.6,
+# and `modelSource` records which one answered so a reader is never left guessing
+# whether a name is authoritative.
 #
 # Resolved from AXON_HOME rather than from the script's own location, matching
 # the sh variant: the installed hook command is a path relative to the
 # descriptor, and this runs with cwd at the workspace root.
 $modelJson = 'null'
-$lib = Join-Path $axonHome 'hooks\lib\Probe.ps1'
-$configPath = Join-Path $axonHome 'config.toml'
-if ((Test-Path -LiteralPath $lib -PathType Leaf) -and
-    (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-    try {
-        . $lib
-        # The agents directory is passed too, because a [subagents.models] pin is
-        # not the only way a role gets a model: an agent file can pin one in its
-        # own frontmatter, as looker does with `model: vision`. Project agents
-        # shadow the installed ones, and cwd is the workspace root, so that
-        # directory wins -- an agent further up the tree is not followed.
-        $agentsDir = Join-Path $axonHome 'agents'
-        $projectAgent = Join-Path '.axon\agents' "$type.md"
-        if (Test-Path -LiteralPath $projectAgent -PathType Leaf) { $agentsDir = '.axon\agents' }
-        $model = Format-Text (Get-RoleModel -Path $configPath -Role $type -AgentsDir $agentsDir)
-        if ($model) { $modelJson = '"' + $model + '"' }
-    } catch {
-        # No model attribution is a gap in the record, not a reason to lose it.
-        $modelJson = 'null'
+$modelSrcJson = 'null'
+if ($uModel) {
+    $modelJson = '"' + $uModel + '"'
+    $modelSrcJson = '"payload"'
+} else {
+    $lib = Join-Path $axonHome 'hooks\lib\Probe.ps1'
+    $configPath = Join-Path $axonHome 'config.toml'
+    if ((Test-Path -LiteralPath $lib -PathType Leaf) -and
+        (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        try {
+            . $lib
+            # The agents directory is passed too, because a [subagents.models] pin
+            # is not the only way a role gets a model: an agent file can pin one in
+            # its own frontmatter, as looker does with `model: vision`. Project
+            # agents shadow the installed ones, and cwd is the workspace root, so
+            # that directory wins -- an agent further up the tree is not followed.
+            $agentsDir = Join-Path $axonHome 'agents'
+            $projectAgent = Join-Path '.axon\agents' "$type.md"
+            if (Test-Path -LiteralPath $projectAgent -PathType Leaf) { $agentsDir = '.axon\agents' }
+            $model = Format-Text (Get-RoleModel -Path $configPath -Role $type -AgentsDir $agentsDir)
+            if ($model) {
+                $modelJson = '"' + $model + '"'
+                $modelSrcJson = '"config"'
+            }
+        } catch {
+            # No model attribution is a gap in the record, not a reason to lose it.
+            $modelJson = 'null'
+            $modelSrcJson = 'null'
+        }
     }
 }
 
-$line = '{{"ts":"{0}","subagentType":"{1}","model":{2},"exitCode":{3},"durationMs":{4},' +
-        '"tokensUsed":{5},"toolCalls":{6},"turns":{7},"error":"{8}"}}'
+$line = '{{"ts":"{0}","subagentType":"{1}","model":{2},"modelSource":{3},' +
+        '"exitCode":{4},"durationMs":{5},"tokensUsed":{6},"toolCalls":{7},"turns":{8},' +
+        '"inputTokens":{9},"outputTokens":{10},"modelCalls":{11},"apiDurationMs":{12},' +
+        '"modelCount":{13},"usageIncomplete":{14},"error":"{15}"}}'
 $record = ($line -f
     (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'),
     $type,
     $modelJson,
+    $modelSrcJson,
     (Format-Number $obj.exitCode),
     (Format-Number $obj.durationMs),
     (Format-Number $obj.tokensUsed),
     (Format-Number $obj.toolCalls),
     (Format-Number $obj.turns),
+    $uIn,
+    $uOut,
+    $uCalls,
+    $uApi,
+    $uCount,
+    $incomplete,
     (Format-Text $obj.error)) + "`n"
 
 try { New-Item -ItemType Directory -Force $outDir | Out-Null } catch { exit 0 }

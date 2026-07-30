@@ -22,7 +22,7 @@
 # distribution does not reach off your machine on its own.
 set -eu
 
-OMA_VERSION="0.1.5"
+OMA_VERSION="0.1.6"
 AXON_HOME="${AXON_HOME:-$HOME/.axon}"
 CONFIG="$AXON_HOME/config.toml"
 QUIET=0

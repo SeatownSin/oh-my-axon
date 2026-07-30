@@ -17,7 +17,7 @@ param([switch]$Uninstall, [switch]$DryRun, [switch]$WithFormatHook,
       [switch]$WithTelemetry, [switch]$Version, [switch]$Help)
 
 $ErrorActionPreference = 'Stop'
-$OmaVersion = '0.1.5'
+$OmaVersion = '0.1.6'
 
 # Failures go straight to stderr rather than through Write-Error, which
 # reflows a multi-line message to the console width. See tools/gen-roles.ps1.

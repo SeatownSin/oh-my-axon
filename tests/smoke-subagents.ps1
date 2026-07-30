@@ -107,8 +107,8 @@ $scoutPayload = Join-Path $Work 'scout.json'
 '@ | Set-Content -LiteralPath $scoutPayload -Encoding ascii
 Invoke-Hook -AxonHome $HomeDir -PayloadFile $scoutPayload | Out-Null
 $lines = @(Get-Content -LiteralPath $Log)
-Assert-Match 'a [subagents.models] pin beats the default' $lines[1] '"model":"small"'
-Assert-NoMatch 'a trailing comment is not part of the model name' $lines[1] 'recon'
+Assert-Match 'a [subagents.models] pin beats the default' $lines[-1] '"model":"small"'
+Assert-NoMatch 'a trailing comment is not part of the model name' $lines[-1] 'recon'
 
 # An agent file can pin its own model in frontmatter, as looker does with
 # `model: vision`. Without that step an unpinned looker is recorded as having
@@ -131,8 +131,8 @@ $lookerPayload = Join-Path $Work 'looker.json'
 '@ | Set-Content -LiteralPath $lookerPayload -Encoding ascii
 Invoke-Hook -AxonHome $HomeDir -PayloadFile $lookerPayload | Out-Null
 $lines = @(Get-Content -LiteralPath $Log)
-Assert-Match 'agent frontmatter beats [models] default' $lines[2] '"model":"vision"'
-Assert-NoMatch 'only the frontmatter is read, never the body' $lines[2] 'notthisone'
+Assert-Match 'agent frontmatter beats [models] default' $lines[-1] '"model":"vision"'
+Assert-NoMatch 'only the frontmatter is read, never the body' $lines[-1] 'notthisone'
 
 # A pin still outranks frontmatter, which is Axon's own precedence.
 $cfgPath = Join-Path $HomeDir 'config.toml'
@@ -140,8 +140,49 @@ $cfgSaved = Get-Content -LiteralPath $cfgPath -Raw
 Add-Content -LiteralPath $cfgPath -Value 'looker = "small"'
 Invoke-Hook -AxonHome $HomeDir -PayloadFile $lookerPayload | Out-Null
 $lines = @(Get-Content -LiteralPath $Log)
-Assert-Match 'a pin outranks agent frontmatter' $lines[3] '"model":"small"'
+Assert-Match 'a pin outranks agent frontmatter' $lines[-1] '"model":"small"'
 Set-Content -LiteralPath $cfgPath -Value $cfgSaved -NoNewline -Encoding ascii
+
+# --- the ledger Axon 0.3.6+ sends -------------------------------------------
+Write-Host ''
+Write-Host 'usageByModel'
+# Two models in one subagent: the counts sum, and the attributed model is the one
+# that generated the most rather than the first or last listed.
+$ledgerPayload = Join-Path $Work 'ledger.json'
+@'
+{"hookEventName":"subagent_end","subagentType":"executor","exitCode":0,"durationMs":41000,"tokensUsed":31200,"toolCalls":6,"turns":9,"usageByModel":[{"model":"quiet","inputTokens":900,"outputTokens":40,"modelCalls":1,"apiDurationMs":300},{"model":"busy","inputTokens":30000,"outputTokens":1200,"modelCalls":9,"apiDurationMs":18000}]}
+'@ | Set-Content -LiteralPath $ledgerPayload -Encoding ascii
+Invoke-Hook -AxonHome $HomeDir -PayloadFile $ledgerPayload | Out-Null
+$last = @(Get-Content -LiteralPath $Log)[-1]
+Assert-Match 'the payload ledger wins over config attribution' $last '"model":"busy"'
+Assert-Match 'attribution names its source' $last '"modelSource":"payload"'
+Assert-Match 'input tokens are summed across models' $last '"inputTokens":30900'
+Assert-Match 'output tokens are summed across models' $last '"outputTokens":1240'
+Assert-Match 'model calls are summed' $last '"modelCalls":10'
+Assert-Match 'API time is summed' $last '"apiDurationMs":18300'
+Assert-Match 'the model count is recorded' $last '"modelCount":2'
+
+# A payload with no ledger at all is every Axon before 0.3.6. The config
+# fallback must still answer, and must say that it did.
+$noLedger = Join-Path $Work 'noledger.json'
+@'
+{"hookEventName":"subagent_end","subagentType":"scout","exitCode":0,"durationMs":6100,"tokensUsed":6900,"toolCalls":0,"turns":1}
+'@ | Set-Content -LiteralPath $noLedger -Encoding ascii
+Invoke-Hook -AxonHome $HomeDir -PayloadFile $noLedger | Out-Null
+$last = @(Get-Content -LiteralPath $Log)[-1]
+Assert-Match 'no ledger falls back to config' $last '"modelSource":"config"'
+Assert-Match 'no ledger still resolves a model' $last '"model":"small"'
+Assert-Match 'no ledger records zero generated' $last '"outputTokens":0'
+Assert-Match 'no ledger records no models' $last '"modelCount":0'
+
+# A bill the child knows is short.
+$shortBill = Join-Path $Work 'short.json'
+@'
+{"hookEventName":"subagent_end","subagentType":"reviewer","exitCode":0,"durationMs":900,"tokensUsed":5000,"toolCalls":0,"turns":1,"usageIncomplete":true,"usageByModel":[{"model":"big","inputTokens":4000,"outputTokens":400,"modelCalls":2,"apiDurationMs":8000}]}
+'@ | Set-Content -LiteralPath $shortBill -Encoding ascii
+Invoke-Hook -AxonHome $HomeDir -PayloadFile $shortBill | Out-Null
+$last = @(Get-Content -LiteralPath $Log)[-1]
+Assert-Match 'a short bill is recorded as such' $last '"usageIncomplete":true'
 
 # --- a missing field stays null, and never becomes zero ----------------------
 Write-Host ''
@@ -154,9 +195,9 @@ Invoke-Hook -AxonHome $HomeDir -PayloadFile $noStatus | Out-Null
 $lines = @(Get-Content -LiteralPath $Log)
 # Axon reports exitCode only for completed/failed/cancelled. A silent 0 here
 # would read as success.
-Assert-Match 'an absent exit code stays null' $lines[4] '"exitCode":null'
-Assert-Match 'an absent tool count stays null' $lines[4] '"toolCalls":null'
-Assert-NoMatch 'an absent field never becomes zero' $lines[4] '"exitCode":0'
+Assert-Match 'an absent exit code stays null' $lines[-1] '"exitCode":null'
+Assert-Match 'an absent tool count stays null' $lines[-1] '"toolCalls":null'
+Assert-NoMatch 'an absent field never becomes zero' $lines[-1] '"exitCode":0'
 
 # --- a hostile error message cannot corrupt the log -------------------------
 Write-Host ''
@@ -177,8 +218,8 @@ $badObj = [ordered]@{
 ($badObj | ConvertTo-Json -Compress) | Set-Content -LiteralPath $badPayload -Encoding ascii
 Invoke-Hook -AxonHome $HomeDir -PayloadFile $badPayload | Out-Null
 $lines = @(Get-Content -LiteralPath $Log)
-Assert-Match 'the error is recorded' $lines[5] 'boom: server said'
-Assert-NoMatch 'no bare quote survives in the error' $lines[5] 'said \\"no'
+Assert-Match 'the error is recorded' $lines[-1] 'boom: server said'
+Assert-NoMatch 'no bare quote survives in the error' $lines[-1] 'said \\"no'
 
 $bad = 0
 foreach ($l in (Get-Content -LiteralPath $Log)) {
@@ -280,8 +321,38 @@ Assert-NoMatch 'an assumed window never produces a compaction finding' $Out 'gue
 Assert-Match 'a vanished model is called out' $Out 'ghosted ran on "vanished", which is not in your catalog'
 Assert-Match 'a role with no attribution is reported' $Out '1 record\(s\) carry no model'
 
-# Tokens per second is the number this data cannot support. It must not appear.
-Assert-NoMatch 'no throughput figure is printed' $Out 'tok/s|tokens/s|tokens per second'
+# Tokens per second must never be derived from tokensUsed. These records carry no
+# ledger at all, so the column has to stay empty rather than fall back to it.
+Assert-Match 'the table offers a TOK/S column' $Out 'TOK/S'
+Assert-NoMatch 'no rate is invented without a ledger' $Out '\d+ +18\.4k'
+Assert-Match 'a ledgerless role says why it has no rate' $Out 'no ledger \(Axon before 0\.3\.6\)'
+
+# --- the rate itself --------------------------------------------------------
+Write-Host ''
+Write-Host 'throughput'
+$rateLog = Join-Path $Work 'rate.jsonl'
+@'
+{"ts":"r1","subagentType":"fast","model":"big","modelSource":"payload","exitCode":0,"durationMs":9000,"tokensUsed":8000,"toolCalls":0,"turns":1,"inputTokens":7000,"outputTokens":600,"modelCalls":1,"apiDurationMs":6000,"modelCount":1,"usageIncomplete":false,"error":""}
+{"ts":"r2","subagentType":"fast","model":"big","modelSource":"payload","exitCode":0,"durationMs":9000,"tokensUsed":8000,"toolCalls":0,"turns":1,"inputTokens":7000,"outputTokens":400,"modelCalls":1,"apiDurationMs":8000,"modelCount":1,"usageIncomplete":false,"error":""}
+{"ts":"r3","subagentType":"tiny","model":"big","modelSource":"payload","exitCode":0,"durationMs":3400,"tokensUsed":6641,"toolCalls":0,"turns":1,"inputTokens":6638,"outputTokens":3,"modelCalls":1,"apiDurationMs":3319,"modelCount":1,"usageIncomplete":false,"error":""}
+{"ts":"r4","subagentType":"shortbill","model":"big","modelSource":"payload","exitCode":0,"durationMs":9000,"tokensUsed":8000,"toolCalls":0,"turns":1,"inputTokens":4000,"outputTokens":400,"modelCalls":2,"apiDurationMs":8000,"modelCount":1,"usageIncomplete":true,"error":""}
+{"ts":"r5","subagentType":"mixed","model":"a","modelSource":"payload","exitCode":0,"durationMs":9000,"tokensUsed":8000,"toolCalls":0,"turns":1,"inputTokens":7000,"outputTokens":600,"modelCalls":1,"apiDurationMs":6000,"modelCount":2,"usageIncomplete":false,"error":""}
+{"ts":"r6","subagentType":"mixed","model":"b","modelSource":"payload","exitCode":0,"durationMs":9000,"tokensUsed":8000,"toolCalls":0,"turns":1,"inputTokens":7000,"outputTokens":600,"modelCalls":1,"apiDurationMs":6000,"modelCount":2,"usageIncomplete":false,"error":""}
+'@ | Set-Content -LiteralPath $rateLog -Encoding ascii
+
+Invoke-Report @('-Log', $rateLog, '-Config', $cfg)
+# 600/6000ms = 100/s and 400/8000ms = 50/s; the median of the two is 75.
+Assert-Match 'the rate is the median of per-run rates' $Out 'fast .* 75 '
+# 3 tokens over 3.3s is prefill wearing a throughput costume.
+Assert-Match 'a tiny generation yields no rate' $Out 'tiny .* - '
+Assert-Match 'and the exclusion is explained' $Out 'tiny has no TOK/S -- every run was excluded; 1 had too little generation to time'
+# A short bill under-counts the numerator, so the rate would read low.
+Assert-Match 'a short bill is excluded from the rate' $Out 'shortbill has no TOK/S -- every run was excluded; 1 reported a short bill'
+Assert-Match 'and its totals are called a floor' $Out 'shortbill reported an incomplete bill'
+# Two models under one role: a rate is still shown, but not as one model's speed.
+Assert-Match 'a mixed-model role warns about its rate' $Out 'mixed mixes 2 models, so its TOK/S is a median across different machines'
+# The forbidden number: nothing may divide tokensUsed by a duration.
+Assert-NoMatch 'tokensUsed is never used as a rate numerator' $Out 'fast .* (888|889|1333) '
 
 Write-Host ''
 Write-Host 'filtering and quiet'

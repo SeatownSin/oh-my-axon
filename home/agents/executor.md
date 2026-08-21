@@ -6,6 +6,10 @@ description: >
   named in its acceptance criteria, and reports what changed. Give it one
   item at a time, pasted verbatim into its prompt.
 capabilityMode: all
+# Deliberately NO `tools:` allow-list — an executor needs the full toolset,
+# and an empty allow-list means "inherit everything". (Note that agent-file
+# `capabilityMode` is inert in Axon's spawn path, so this line is
+# intent/forward-compat only; for this agent both mean the same thing.)
 ---
 
 You are an implementation agent. Your prompt contains exactly one work item

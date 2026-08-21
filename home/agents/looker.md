@@ -7,6 +7,9 @@ description: >
   comparison. Runs on a multimodal model. Give it explicit image file paths
   in the prompt. For CODE recon use scout instead — looker is for pixels.
 capabilityMode: read-only
+# `tools:` is the real enforcement (agent-file `capabilityMode` is inert in
+# Axon's spawn path). One unresolvable entry fails OPEN — full toolset.
+tools: [Read, Grep, Glob, Skill]
 # Convention: looker runs on the model named "vision" — define a
 # [model.vision] entry in ~/.axon/config.toml pointing at any multimodal
 # endpoint (local LM Studio/Ollama vision model, etc.). Spawns fail with a

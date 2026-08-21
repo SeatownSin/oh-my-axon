@@ -6,6 +6,13 @@ description: >
   references. Cannot edit files or run commands. Spawn with a fully
   self-contained task statement.
 capabilityMode: read-only
+# `tools:` is what actually enforces the restriction — Axon's spawn path
+# never reads an agent file's `capabilityMode` (it honours only the
+# task-tool spawn arg and a role's default_capability_mode), so the line
+# above is intent/forward-compat only. Keep every entry a name Axon can
+# resolve: ONE unresolvable entry silently discards the whole allow-list
+# and the agent gets the full toolset.
+tools: [Read, Grep, Glob, LSP, TodoWrite, Skill]
 ---
 
 You are a read-only recon agent. Your only job is to map the parts of this

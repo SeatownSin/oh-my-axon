@@ -6,6 +6,9 @@ description: >
   nothing; returns the plan as text for the orchestrator to save. Include
   the full recon report in its prompt.
 capabilityMode: read-only
+# `tools:` is the real enforcement (agent-file `capabilityMode` is inert in
+# Axon's spawn path). One unresolvable entry fails OPEN — full toolset.
+tools: [Read, Grep, Glob, LSP, TodoWrite, Skill]
 ---
 
 You are a read-only planning agent. You receive a task and (usually) a

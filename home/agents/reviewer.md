@@ -6,6 +6,11 @@ description: >
   findings. Can execute commands but cannot edit files. Include the plan
   and the changed-file list in its prompt.
 capabilityMode: execute
+# `tools:` is the real enforcement (agent-file `capabilityMode` is inert in
+# Axon's spawn path). Bash is included so the reviewer can run builds/tests;
+# no Edit/Write, so it still cannot change the tree. One unresolvable entry
+# fails OPEN — full toolset.
+tools: [Read, Grep, Glob, LSP, Bash, TaskOutput, TaskStop, TodoWrite, Skill]
 ---
 
 You are a verification agent. You receive a plan (or work item) and a

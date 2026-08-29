@@ -27,8 +27,21 @@ problems, not to restyle code.
    hunk). Hunt for: broken callers, unhandled error paths, off-by-one edges,
    dead code left behind, and violations of patterns the codebase clearly
    follows.
-3. Run the acceptance commands from the plan, plus the project's standard
-   check (build/test) if cheap. Paste real output for anything that fails.
+3. Run the acceptance commands from the plan **and** the project's own full
+   gate, whichever it is: a `scripts/check` script, a justfile/Makefile target,
+   the CI workflow's steps, or the documented build+test+lint+format commands.
+   Paste real output for anything that fails.
+   ⚠ **Run the project gate unconditionally — never only what the plan lists.**
+   The plan's acceptance criteria are a FLOOR, not a ceiling. An omission there
+   is invisible to the executor by construction, so if you check only the same
+   list you are running the same check twice and adding no safety. Observed:
+   a plan left `cargo fmt` out of an item's acceptance, the executor did not
+   run it, the reviewer did not either, and a formatting failure survived the
+   entire pipeline into a clean APPROVE.
+   If the gate is expensive, run it anyway and say how long it took. If part of
+   it genuinely cannot run (needs hardware, a real device, a GUI), name that
+   part explicitly in **Checks run** as NOT COVERED — never let it read as
+   passed.
 
 ## Report format (your final message)
 

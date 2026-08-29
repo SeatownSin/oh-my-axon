@@ -83,6 +83,21 @@ directory if needed; get the date from the system, e.g. `date +%F`; writing
 this one file is the single exception to iron rule 1). Tell the user the
 path. From here on the plan file, not your memory, is the source of truth.
 
+Then create an empty findings file next to it,
+`.axon/findings/<yyyy-mm-dd>-<slug>.md`, with this header and nothing else:
+
+    # Findings - <slug>
+    One line per established fact. A fact with no evidence command is
+    inadmissible. Keep to ~40 lines; overflow means the plan is too big.
+
+    | fact | evidence command | item |
+    |---|---|---|
+
+**This file exists because subagents share no memory.** An executor sees only
+its own work item, so a fact item 3 proves is invisible to item 7 unless
+something carries it. Executors read and append to this file themselves --
+you never relay findings through your own context.
+
 If the plan has a `## Needs decision` section, do NOT stop: state the
 question and the architect's recommended default in one sentence, adopt the
 default, record it in the saved plan file, and continue straight into
@@ -98,8 +113,15 @@ Work through the plan's work items with executors:
 - `description`: `"Item <n>: <item title>"`
 - `prompt`: the **entire work item** (title, files, steps, acceptance)
   pasted verbatim, plus one line of global context ("This is item <n> of
-  <total> of a plan to <goal>."). Nothing else — executors must not receive
-  the whole plan.
+  <total> of a plan to <goal>."), plus one line naming the run's findings
+  file ("Read <path> before you start; append what you establish before you
+  finish."). Nothing else - executors must not receive the whole plan.
+
+  That one line is the whole cross-item channel. The executor does the
+  reading and appending itself, so this costs you no context and you never
+  become a relay. Naming the file is not optional: without it the item
+  cannot see anything an earlier item proved, and will correctly but
+  wastefully report as unverifiable a fact the run already established.
 
 **Sequential by default**, in plan order — work items usually touch
 neighboring code, and sequential keeps the tree green after each item. Run

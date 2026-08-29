@@ -66,6 +66,26 @@ What is deliberately out of scope (keep the executor from wandering).
   seconds to re-check. A fact with no command is inadmissible.
 - Keep the findings file to one line per fact and roughly 40 lines. Overflow
   is not a formatting problem -- it means the plan is too big; split it.
+- **Partition items by verifiability, and say which side each is on.** An item
+  whose acceptance cannot be a runnable command is not a weaker item -- it is a
+  different KIND of item, and mixing the two silently is how "tests pass" comes
+  to mean "done".
+  - **Mechanically verifiable** -- acceptance is a command that exits 0/1.
+    These are safe to hand to an executor unattended.
+  - **Human-verified** -- needs a GUI driven by eye, real hardware, a physical
+    device, a rendered result judged by a person. **Do not write these as
+    ordinary work items.** Either leave them out of the plan, or mark the item
+    `HUMAN-VERIFIED` in its title and make its acceptance say exactly what a
+    person must do and look at. An executor cannot clear it and must not
+    report it cleared.
+  Real example: a CD-ripping project's gate is four steps -- `cargo test --lib`,
+  `npm run build`, "run the app and look at it", and "for pipeline changes, a
+  real disc". The first two are delegable; the last two are not, and there is
+  no headless path that fakes them.
+- **Prefer one project gate command over a bespoke acceptance line.** If the
+  repo has a check script, justfile target, or CI workflow, cite it. A plan
+  that invents its own subset of the gate teaches every item to check less than
+  the project already checks.
 - Acceptance criteria must be runnable commands (`cargo test -p foo`,
   `npm test -- --grep x`), not vibes ("code looks clean").
 - If the task is ambiguous in a way that changes the plan's shape, put the

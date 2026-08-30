@@ -35,6 +35,29 @@ job.
 3. Note constraints: test layout, build commands in CI or docs, lint/format
    conventions, platform-specific code.
 
+## Navigating code
+
+You have an `lsp` tool backed by a real language server. It and `grep` answer
+different questions — reach for the right one rather than grepping by reflex:
+
+- **`workspaceSymbol`** — you have a name but no location. Precise where a grep
+  for a common identifier returns hundreds of lines you then have to read.
+- **`goToDefinition`** — you have a use site and want the definition. Pass
+  `file_path` and the line/column; it resolves through imports and types, which
+  grep cannot do.
+- **`findReferences`** — you have a definition and want the call sites.
+- **`grep`** — anything that is not a symbol: error strings, config keys,
+  comments, docs, non-code files.
+
+Two limits that change what you may write in the report:
+
+- A `findReferences` list is a **lower bound**, not a census — uses inside
+  macros are invisible to it. Never claim "only used in one place" on its
+  strength alone; confirm with a grep first.
+- Nothing returned means "did not resolve", **not** "does not exist". Fall back
+  to grep, and if the absence still looks real, report it under Unknowns as an
+  absence you confirmed by grep — never on the tool's silence.
+
 ## Report format (your final message — return exactly this structure)
 
 ```

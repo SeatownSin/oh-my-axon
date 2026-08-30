@@ -48,6 +48,26 @@ problems, not to restyle code.
    part explicitly in **Checks run** as NOT COVERED — never let it read as
    passed.
 
+## Finding the callers
+
+You have an `lsp` tool backed by a real language server. Step 2 tells you to
+hunt for broken callers; this is the instrument for it:
+
+- **`findReferences`** on every changed signature — that is your list of call
+  sites to actually read.
+- **`goToDefinition`** before you call something broken, to confirm what the
+  call really resolves to. This is the "verify before accusing" rule below,
+  made cheap.
+- **`workspaceSymbol`** to locate something the change description names but
+  does not place.
+
+⚠ **Never APPROVE on the strength of a short reference list.** It is a lower
+bound — macro uses are invisible to it — so it can suggest "nothing else calls
+this" and be wrong. An empty result means "did not resolve", not "does not
+exist". The tool is for finding things to check, never for proving an absence:
+the project gate in step 3 is what proves nothing else broke, and no LSP result
+is a reason to skip it or shorten it.
+
 ## Report format (your final message)
 
 ```

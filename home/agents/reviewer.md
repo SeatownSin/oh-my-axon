@@ -10,6 +10,11 @@ capabilityMode: execute
 # Axon's spawn path). Bash is included so the reviewer can run builds/tests;
 # no Edit/Write, so it still cannot change the tree. One unresolvable entry
 # fails OPEN — full toolset.
+# LSP requires [features] lsp_tools = true in the user's config.toml — Axon
+# defaults it FALSE, and while it is off this entry is a silent no-op: the
+# builder logs recognized_but_unavailable=["LSP"] at DEBUG and drops it, with
+# no warning and no change to the allowed= list. If you turn the feature off,
+# remove this entry in the same change, or the declaration starts lying again.
 tools: [Read, Grep, Glob, LSP, Bash, TaskOutput, TaskStop, TodoWrite, Skill]
 ---
 

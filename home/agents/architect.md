@@ -8,6 +8,11 @@ description: >
 capabilityMode: read-only
 # `tools:` is the real enforcement (agent-file `capabilityMode` is inert in
 # Axon's spawn path). One unresolvable entry fails OPEN — full toolset.
+# LSP requires [features] lsp_tools = true in the user's config.toml — Axon
+# defaults it FALSE, and while it is off this entry is a silent no-op: the
+# builder logs recognized_but_unavailable=["LSP"] at DEBUG and drops it, with
+# no warning and no change to the allowed= list. If you turn the feature off,
+# remove this entry in the same change, or the declaration starts lying again.
 tools: [Read, Grep, Glob, LSP, TodoWrite, Skill]
 ---
 

@@ -12,6 +12,11 @@ capabilityMode: read-only
 # above is intent/forward-compat only. Keep every entry a name Axon can
 # resolve: ONE unresolvable entry silently discards the whole allow-list
 # and the agent gets the full toolset.
+# LSP requires [features] lsp_tools = true in the user's config.toml — Axon
+# defaults it FALSE, and while it is off this entry is a silent no-op: the
+# builder logs recognized_but_unavailable=["LSP"] at DEBUG and drops it, with
+# no warning and no change to the allowed= list. If you turn the feature off,
+# remove this entry in the same change, or the declaration starts lying again.
 tools: [Read, Grep, Glob, LSP, TodoWrite, Skill]
 ---
 

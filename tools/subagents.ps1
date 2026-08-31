@@ -162,6 +162,14 @@ foreach ($file in $logFiles) {
         if (-not $line.Trim()) { continue }
         try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
         $name = [string]$rec.subagentType
+        # A session row is a different animal from a subagent row: different
+        # context budget, different task shape, and only a subagent's role name
+        # comes from the payload at all. Pooling them under one heading would
+        # average two regimes into a number describing neither, so the kind
+        # becomes part of the key and sessions report as `session:<role>`.
+        # Records written before `kind` existed came from SubagentStop and are
+        # subagents by construction, which is why the default is subagent.
+        if ([string]$rec.kind -eq 'session') { $name = 'session:' + $name }
         if (-not $name) { continue }
         if ($Role -and $name -cne $Role) { continue }
 
@@ -251,7 +259,7 @@ if ($total -eq 0) {
     }
 } else {
     if (-not $Quiet) {
-        $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
+        $rows.Add(('{0,-16} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
             'ROLE', 'MODEL', 'RUNS', 'OK/FAIL/CANC', 'MED DUR', 'TURNS/CALLS',
             'TOK/S', 'PEAK CTX', 'OF WINDOW'))
     }
@@ -287,8 +295,8 @@ if ($total -eq 0) {
             $rateStr = if ($null -eq $mRate) { '-' }
                        elseif ($mRate -ge 10) { '{0}' -f [int][math]::Floor($mRate + 0.5) }
                        else { '{0:0.0}' -f $mRate }
-            $rows.Add(('{0,-10} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
-                $name.Substring(0, [math]::Min(10, $name.Length)),
+            $rows.Add(('{0,-16} {1,-10} {2,5} {3,14} {4,9} {5,12} {6,8} {7,10} {8,10}' -f
+                $name.Substring(0, [math]::Min(16, $name.Length)),
                 $label.Substring(0, [math]::Min(10, $label.Length)),
                 $r.Runs,
                 ('{0}/{1}/{2}' -f $r.Ok, $r.Bad, $r.Canc),

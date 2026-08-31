@@ -2,7 +2,8 @@
 # oh-my-axon subagent report (Linux / WSL / macOS).
 #
 #   tools/subagents.sh               summarise every recorded subagent run
-#   tools/subagents.sh --role NAME   one role only
+#   tools/subagents.sh --role NAME   one role only (a session row is
+#                                   named `session:<role>`)
 #   tools/subagents.sh --log PATH    read a specific telemetry log
 #   tools/subagents.sh --config PATH resolve model windows from a specific config
 #   tools/subagents.sh --quiet       print only problems
@@ -162,6 +163,15 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
     {
         role = jval($0, "subagentType")
         if (role == "") next
+        # A session row is a different animal from a subagent row: different
+        # context budget, different task shape, and only a subagent role name
+        # comes from the payload at all. Pooling them under one heading would
+        # average two regimes into a number describing neither, so the kind
+        # becomes part of the key and sessions report as `session:<role>`.
+        # Records written before `kind` existed came from SubagentStop and are
+        # subagents by construction, which is why the default is subagent.
+        kind = jval($0, "kind")
+        if (kind == "session") role = "session:" role
         if (want != "" && role != want) next
         if (!(role in runs)) {
             order[++nroles] = role
@@ -243,7 +253,7 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
             if (gfloor > 0) {
                 printf "HEAD2\tSmallest run recorded: %s of context. That is close to the fixed cost of a spawn, before a subagent does any work.\n", toks(gfloor)
             }
-            printf "ROW\t%-10s %-10s %5s %14s %9s %12s %8s %10s %10s\n", \
+            printf "ROW\t%-16s %-10s %5s %14s %9s %12s %8s %10s %10s\n", \
                 "ROLE", "MODEL", "RUNS", "OK/FAIL/CANC", "MED DUR", "TURNS/CALLS", \
                 "TOK/S", "PEAK CTX", "OF WINDOW"
         }
@@ -278,8 +288,8 @@ REPORT=$(awk -v want="$ROLE" -v quiet="$QUIET" -v logpath="$LOG" -v catfile="$CA
                 mrate = median(rtmp, nr[r])
                 rate_s = (mrate < 0) ? "-" : \
                     ((mrate >= 10) ? sprintf("%d", int(mrate + 0.5)) : sprintf("%.1f", mrate))
-                printf "ROW\t%-10s %-10s %5d %14s %9s %12s %8s %10s %10s\n", \
-                    substr(r, 1, 10), substr(label, 1, 10), runs[r], \
+                printf "ROW\t%-16s %-10s %5d %14s %9s %12s %8s %10s %10s\n", \
+                    substr(r, 1, 16), substr(label, 1, 10), runs[r], \
                     sprintf("%d/%d/%d", ok[r] + 0, bad[r] + 0, canc[r] + 0), \
                     dur(median(dtmp, nd[r])), \
                     sprintf("%s/%s", (mt < 0 ? "-" : sprintf("%g", mt)), (mc < 0 ? "-" : sprintf("%g", mc))), \

@@ -1,8 +1,11 @@
 #!/bin/sh
-# oh-my-axon subagent telemetry (SubagentStop).
+# oh-my-axon run telemetry (SubagentStop + SessionEnd).
 #
-# Appends one JSON line per finished subagent to
+# Appends one JSON line per finished RUN to
 # $AXON_HOME/telemetry/subagents.jsonl, which tools/subagents.sh reads back.
+# A run is one subagent (`SubagentStop`) or one whole session (`SessionEnd`,
+# axon 0.3.7+). The `kind` field says which; records written before that field
+# existed are all subagents.
 # Nothing leaves this machine, and nothing here is ever sent anywhere.
 #
 # Never blocks, never complains, always exits 0: a hook that fails loudly at
@@ -109,13 +112,41 @@ usage_summary() {
     '
 }
 
+# A subagent session fires its OWN `SessionEnd` while the parent separately
+# receives `SubagentStop` for the same work. Recording both counts that run
+# twice, and nothing else in the two payloads tells them apart -- which is why
+# axon 0.3.7 puts `isSubagent` on the event. Drop it here; the parent's
+# SubagentStop is the record for that run.
+case "$payload" in
+    *'"isSubagent"'*true*) exit 0 ;;
+esac
+
 TYPE=$(jstr subagentType)
+KIND=subagent
+ROLE_SRC_JSON='"payload"'
+if [ -z "$TYPE" ]; then
+    # No `subagentType` means a top-level session.
+    KIND=session
+    ROLE_SRC_JSON=null
+    # Nothing tells a hook which agent a top-level session was started with.
+    # The envelope carries sessionId/cwd/workspaceRoot/timestamps, and the
+    # environment only AXON_HOOK_{EVENT,NAME,DEBUG} -- so `axon --agent looker`
+    # arrives indistinguishable from a plain session. The invoker is the only
+    # thing that knows, so let it say: set OMA_ROLE and the run is attributed.
+    # Anything else stays honestly unattributed rather than guessed at.
+    if [ -n "${OMA_ROLE:-}" ]; then
+        TYPE=$(printf '%s' "$OMA_ROLE" | strip_unsafe | cut -c1-200)
+        ROLE_SRC_JSON='"env"'
+    fi
+fi
 [ -n "$TYPE" ] || TYPE="unknown"
 EXIT_CODE=$(jnum exitCode)
 DURATION=$(jnum durationMs)
 TOKENS=$(jnum tokensUsed)
 CALLS=$(jnum toolCalls)
+[ -n "$CALLS" ] || CALLS=$(jnum toolCallCount)
 TURNS=$(jnum turns)
+[ -n "$TURNS" ] || TURNS=$(jnum turnCount)
 ERR=$(jerr)
 
 # Which model this role ran on, resolved now rather than at report time: a log
@@ -133,6 +164,13 @@ U_IN=$(printf '%s' "$USAGE" | cut -f 3)
 U_OUT=$(printf '%s' "$USAGE" | cut -f 4)
 U_CALLS=$(printf '%s' "$USAGE" | cut -f 5)
 U_API=$(printf '%s' "$USAGE" | cut -f 6)
+
+# Before axon 0.3.7, `SessionEnd` carried no usage at all, so a record here
+# would be a row of zeros claiming the session cost nothing. Nothing to report
+# is not the same as a free run: skip it rather than pollute the corpus.
+if [ "$KIND" = session ] && [ "$U_COUNT" = 0 ] && [ -z "$TOKENS" ]; then
+    exit 0
+fi
 
 # A bill the child knows is short. Recorded so the reporter can call its totals a
 # floor instead of a measurement.
@@ -158,8 +196,11 @@ if [ -n "$U_MODEL" ]; then
     MODEL="$U_MODEL"
     MODEL_SRC="payload"
 else
+    # Only worth asking the config when the role name actually names an agent;
+    # an unattributed session has nothing to look up.
     _lib="$AXON_HOME/hooks/lib/probe.sh"
-    if [ -f "$_lib" ] && [ -f "$AXON_HOME/config.toml" ]; then
+    [ "$TYPE" = unknown ] && _lib=""
+    if [ -n "$_lib" ] && [ -f "$_lib" ] && [ -f "$AXON_HOME/config.toml" ]; then
         # shellcheck source=tools/lib/probe.sh
         . "$_lib" 2>/dev/null || true
         if command -v probe_role_model >/dev/null 2>&1; then
@@ -190,9 +231,11 @@ mkdir -p "$OUT_DIR" 2>/dev/null || exit 0
 
 # A single write of a short line is atomic on an O_APPEND descriptor, so
 # subagents finishing together interleave records, never characters.
-printf '{"ts":"%s","subagentType":"%s","model":%s,"modelSource":%s,"exitCode":%s,"durationMs":%s,"tokensUsed":%s,"toolCalls":%s,"turns":%s,"inputTokens":%s,"outputTokens":%s,"modelCalls":%s,"apiDurationMs":%s,"modelCount":%s,"usageIncomplete":%s,"error":"%s"}\n' \
+printf '{"ts":"%s","kind":"%s","subagentType":"%s","roleSource":%s,"model":%s,"modelSource":%s,"exitCode":%s,"durationMs":%s,"tokensUsed":%s,"toolCalls":%s,"turns":%s,"inputTokens":%s,"outputTokens":%s,"modelCalls":%s,"apiDurationMs":%s,"modelCount":%s,"usageIncomplete":%s,"error":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$KIND" \
     "$(printf '%s' "$TYPE" | strip_unsafe)" \
+    "$ROLE_SRC_JSON" \
     "$MODEL_JSON" \
     "$MODEL_SRC_JSON" \
     "$(n "$EXIT_CODE")" \

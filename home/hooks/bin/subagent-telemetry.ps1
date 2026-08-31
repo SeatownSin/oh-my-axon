@@ -1,7 +1,10 @@
-# oh-my-axon subagent telemetry (SubagentStop), Windows variant.
+# oh-my-axon run telemetry (SubagentStop + SessionEnd), Windows variant.
 #
-# Appends one JSON line per finished subagent to
+# Appends one JSON line per finished RUN to
 # $AXON_HOME\telemetry\subagents.jsonl, which tools\subagents.ps1 reads back.
+# A run is one subagent (`SubagentStop`) or one whole session (`SessionEnd`,
+# axon 0.3.7+). The `kind` field says which; records written before that field
+# existed are all subagents.
 # Nothing leaves this machine, and nothing here is ever sent anywhere.
 #
 # Never blocks, never complains, always exits 0: a hook that fails loudly at
@@ -48,7 +51,31 @@ function Format-Text {
     return $s
 }
 
+# A subagent session fires its OWN `SessionEnd` while the parent separately
+# receives `SubagentStop` for the same work. Recording both counts that run
+# twice, and nothing else in the two payloads tells them apart -- which is
+# exactly why axon 0.3.7 puts `isSubagent` on the event. Drop it here; the
+# parent's SubagentStop is the record for that run.
+if ($obj.isSubagent) { exit 0 }
+
 $type = Format-Text $obj.subagentType
+$kind = 'subagent'
+$roleSrcJson = '"payload"'
+if (-not $type) {
+    # No `subagentType` means a top-level session.
+    $kind = 'session'
+    $roleSrcJson = 'null'
+    # Nothing tells a hook which agent a top-level session was started with.
+    # The envelope carries sessionId/cwd/workspaceRoot/timestamps, and the
+    # environment only AXON_HOOK_{EVENT,NAME,DEBUG} -- so `axon --agent looker`
+    # arrives indistinguishable from a plain session. The invoker is the only
+    # thing that knows, so let it say: set OMA_ROLE and the run is attributed.
+    # Anything else stays honestly unattributed rather than guessed at.
+    if ($env:OMA_ROLE) {
+        $type = Format-Text $env:OMA_ROLE
+        $roleSrcJson = '"env"'
+    }
+}
 if (-not $type) { $type = 'unknown' }
 
 # The child's own billing ledger, one entry per model it called (Axon 0.3.6+).
@@ -74,6 +101,15 @@ foreach ($entry in @($obj.usageByModel)) {
     if ($o -gt $bestOut) { $bestOut = $o; $uModel = Format-Text $entry.model }
 }
 
+# `SessionEnd` names the same two counters `turnCount` / `toolCallCount`.
+$turnsVal = if ($null -ne $obj.turns) { $obj.turns } else { $obj.turnCount }
+$toolCallsVal = if ($null -ne $obj.toolCalls) { $obj.toolCalls } else { $obj.toolCallCount }
+
+# Before axon 0.3.7, `SessionEnd` carried no usage at all, so a record here
+# would be a row of zeros claiming the session cost nothing. Nothing to report
+# is not the same as a free run: skip it rather than pollute the corpus.
+if ($kind -eq 'session' -and $uCount -eq 0 -and $null -eq $obj.tokensUsed) { exit 0 }
+
 # A bill the child knows is short. Recorded so the reporter can call its totals a
 # floor instead of a measurement.
 $incomplete = if ($obj.usageIncomplete) { 'true' } else { 'false' }
@@ -93,9 +129,11 @@ if ($uModel) {
     $modelJson = '"' + $uModel + '"'
     $modelSrcJson = '"payload"'
 } else {
-    $lib = Join-Path $axonHome 'hooks\lib\Probe.ps1'
+    # Only worth asking the config when the role name actually names an agent;
+    # an unattributed session has nothing to look up.
+    if ($type -eq 'unknown') { $lib = '' } else { $lib = Join-Path $axonHome 'hooks\lib\Probe.ps1' }
     $configPath = Join-Path $axonHome 'config.toml'
-    if ((Test-Path -LiteralPath $lib -PathType Leaf) -and
+    if ($lib -and (Test-Path -LiteralPath $lib -PathType Leaf) -and
         (Test-Path -LiteralPath $configPath -PathType Leaf)) {
         try {
             . $lib
@@ -120,7 +158,8 @@ if ($uModel) {
     }
 }
 
-$line = '{{"ts":"{0}","subagentType":"{1}","model":{2},"modelSource":{3},' +
+$line = '{{"ts":"{0}","kind":"{16}","subagentType":"{1}","roleSource":{17},' +
+        '"model":{2},"modelSource":{3},' +
         '"exitCode":{4},"durationMs":{5},"tokensUsed":{6},"toolCalls":{7},"turns":{8},' +
         '"inputTokens":{9},"outputTokens":{10},"modelCalls":{11},"apiDurationMs":{12},' +
         '"modelCount":{13},"usageIncomplete":{14},"error":"{15}"}}'
@@ -132,15 +171,17 @@ $record = ($line -f
     (Format-Number $obj.exitCode),
     (Format-Number $obj.durationMs),
     (Format-Number $obj.tokensUsed),
-    (Format-Number $obj.toolCalls),
-    (Format-Number $obj.turns),
+    (Format-Number $toolCallsVal),
+    (Format-Number $turnsVal),
     $uIn,
     $uOut,
     $uCalls,
     $uApi,
     $uCount,
     $incomplete,
-    (Format-Text $obj.error)) + "`n"
+    (Format-Text $obj.error),
+    $kind,
+    $roleSrcJson) + "`n"
 
 try { New-Item -ItemType Directory -Force $outDir | Out-Null } catch { exit 0 }
 

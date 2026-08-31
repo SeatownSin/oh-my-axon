@@ -20,8 +20,8 @@ drop into `~/.axon/`, built on Axon's native extension surface.
 | **`/audit` skill** | `~/.axon/skills/audit/` | Whole-codebase health check: fans out read-only agents across dimensions (security, secrets, deps, dead code, error handling, tests, licensing), dedupes and ranks findings, writes a prioritized report to `.axon/audits/`. Never edits — hand fixes to `/ultrawork` after |
 | **secret-scan hook** | `~/.axon/hooks/` | PreToolUse gate that blocks edits/commands containing things that look like real credentials (AWS/GitHub/Slack/OpenAI/Anthropic/Google/Stripe keys, private key blocks). 100% local |
 | **format-on-edit hook** (opt-in) | `~/.axon/hooks/` | PostToolUse hook that auto-formats an edited file with the project's own formatter (rustfmt / prettier / black, detected by config file). Never blocks an edit; installed only with `--with-format-hook` / `-WithFormatHook` |
-| **subagent telemetry hook** (opt-in) | `~/.axon/hooks/` | SubagentStop hook that appends one line per finished subagent to `~/.axon/telemetry/subagents.jsonl` — role, model, exit status, duration, context used, turns, tool calls, and on Axon 0.3.6+ the per-model ledger (generated tokens and API time) that makes a real throughput figure possible. Never blocks, never leaves your machine, records no prompt text; installed only with `--with-telemetry` / `-WithTelemetry` |
-| **Subagent report** | stays in this repo | `tools/subagents.sh` / `.ps1` — turns that log into per-role measurements: which roles fail, how long they take, and how close each one came to filling its model's context window |
+| **run telemetry hook** (opt-in) | `~/.axon/hooks/` | `SubagentStop` + `SessionEnd` hooks appending one line per finished run to `~/.axon/telemetry/subagents.jsonl` — role, model, exit status, duration, context used, turns, tool calls, and the per-model ledger (generated tokens and API time) that makes a real throughput figure possible. A run is one subagent or, on Axon **0.3.7+**, one whole session — which is what finally makes a headless `axon --agent NAME -p ...` measurable at all. Never blocks, never leaves your machine, records no prompt text; installed only with `--with-telemetry` / `-WithTelemetry` |
+| **Run report** | stays in this repo | `tools/subagents.sh` / `.ps1` — turns that log into per-role measurements: which roles fail, how long they take, and how close each one came to filling its model's context window. Session rows are reported separately as `session:<role>`, never pooled with subagent rows |
 | **Model config reference** | stays in this repo | `config/config.toml.snippet` — LM Studio / Ollama / LAN-server blocks with the context-window gotchas spelled out |
 | **Fleet doctor** | stays in this repo | `tools/doctor.sh` / `.ps1` — checks that the models your config names are actually up, serving what you think, and honest about their context window. Exits non-zero when a role's model is broken |
 | **Role preset generator** | stays in this repo | `tools/gen-roles.sh` / `.ps1` — reads the models you already have and prints a `[models]` + `[subagents.models]` block wiring each agent to a sensible one. Prints only; never writes your config |
@@ -209,6 +209,29 @@ tools/subagents.sh --quiet         # only problems, for a script
 ```powershell
 .\tools\subagents.ps1
 .\tools\subagents.ps1 -Role executor
+
+### Two things to know about what it records
+
+**A subagent is recorded once, not three times.** On Axon 0.3.7+ a subagent
+session fires its own `SessionEnd` while the parent separately receives
+`SubagentStop` for the same work — the same tokens, reported twice. The hook
+drops any event flagged `isSubagent` and keeps the parent's `SubagentStop` as
+the record for that run.
+
+**A top-level session has no role, and the hook will not invent one.** Nothing
+in a hook payload or environment says which agent a session was started with:
+the envelope carries only ids, paths and timestamps, so `axon --agent looker`
+arrives indistinguishable from a plain session. Those runs record as
+`session:unknown`. The invoker is the only thing that knows, so it can say —
+set `OMA_ROLE` and the run is attributed, with `roleSource: "env"` recording
+that it came from you rather than from Axon:
+
+```sh
+OMA_ROLE=looker axon --agent looker -p "..."
+```
+
+Per-role medians therefore still come from real subagent spawns. Session rows
+add volume and cost, not role depth.
 ```
 
 ```

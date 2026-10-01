@@ -261,12 +261,80 @@ def check_installer_versions():
         check("installers prune the same directories", a == b,
               f"only in install.sh: {sorted(a - b)}; only in install.ps1: {sorted(b - a)}")
 
-    # Every shipped skill must be in the prune list, or uninstall leaves it.
+    # Every shipped skill directory must be in the prune list, or uninstall
+    # leaves it -- nested ones too (skills/ultrawork/scripts). rmdir only
+    # removes empty directories, so a child has to be pruned before its parent.
     if sh_dirs:
-        pruned = {p.strip() for p in sh_dirs.group(1).split()}
-        for d in sorted(x for x in (HOME / "skills").iterdir() if x.is_dir()):
-            check(f"uninstall prunes skills/{d.name}", f"skills/{d.name}" in pruned,
+        order = [p.strip() for p in sh_dirs.group(1).split()]
+        for d in sorted(x for x in (HOME / "skills").rglob("*") if x.is_dir()):
+            rel = d.relative_to(HOME).as_posix()
+            check(f"uninstall prunes {rel}", rel in order,
                   "add it to the prune list in both installers")
+            parent = d.parent.relative_to(HOME).as_posix()
+            if rel in order and parent in order:
+                check(f"uninstall prunes {rel} before {parent}",
+                      order.index(rel) < order.index(parent),
+                      "children must come before their parent in the prune list")
+
+
+def check_handoff_script():
+    """Run ultrawork's file-handoff tool against a fake AXON_HOME.
+
+    The skill tells the orchestrator to trust this script's OK/ERROR line, so
+    both halves are pinned: it must save the LAST non-empty assistant message,
+    and it must refuse (exit 1, nothing written) when there is no final text --
+    a failed subagent must never produce an empty plan that looks saved.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    print("\nultrawork file-handoff script")
+    script = HOME / "skills" / "ultrawork" / "scripts" / "save_subagent_report.py"
+    check("handoff script is shipped", script.is_file(), str(script))
+    if not script.is_file():
+        return
+
+    def transcript(home, sid, records):
+        d = Path(home) / "sessions" / "C%3A%5Cproj" / sid
+        d.mkdir(parents=True)
+        with (d / "chat_history.jsonl").open("w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+    def run(home, sid, out):
+        env = dict(os.environ, AXON_HOME=str(home))
+        p = subprocess.run([sys.executable, str(script), sid, str(out)],
+                           capture_output=True, text=True, env=env)
+        return p.returncode, p.stdout.strip()
+
+    with tempfile.TemporaryDirectory() as home:
+        transcript(home, "good", [
+            {"type": "system", "content": "sys"},
+            {"type": "assistant", "content": "draft, not the report", "tool_calls": [{}]},
+            {"type": "tool_result", "content": "x"},
+            {"type": "assistant", "content": "# Plan\n\n1. item\n"},
+        ])
+        out = Path(home) / "plans" / "p.md"
+        code, line = run(home, "good", out)
+        check("saves the final assistant message", code == 0 and out.is_file()
+              and out.read_text(encoding="utf-8") == "# Plan\n\n1. item\n", f"{code} {line}")
+        check("prints a one-line OK", line.startswith("OK: 3 lines"), line)
+
+        # Known-bad: a failed subagent's transcript ends without final text.
+        transcript(home, "failed", [
+            {"type": "assistant", "content": "", "tool_calls": [{}]},
+            {"type": "assistant", "content": "   "},
+        ])
+        out2 = Path(home) / "plans" / "q.md"
+        code, line = run(home, "failed", out2)
+        check("refuses a transcript with no final text", code == 1 and not out2.exists()
+              and line.startswith("ERROR"), f"{code} {line}")
+
+        # Known-bad: an unknown id.
+        code, line = run(home, "missing", Path(home) / "r.md")
+        check("refuses an unknown subagent id", code == 1 and line.startswith("ERROR"),
+              f"{code} {line}")
 
 
 def check_readme(agent_names, skill_names):
@@ -297,6 +365,7 @@ def main():
     check_personas()
     check_config_snippet()
     check_installer_versions()
+    check_handoff_script()
     check_readme(agent_names, skill_names)
     print(f"\n{checks} checks, {failures} failed")
     if failures:

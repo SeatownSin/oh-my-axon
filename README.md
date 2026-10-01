@@ -62,7 +62,17 @@ installer in each environment you use Axon from.
 ulw fix the flaky watcher test                         # same, inline trigger
 /plan migrate the config loader to toml v2             # plan only
 /ultrawork run .axon/plans/2026-07-22-config-loader.md # execute a saved plan
+/ultrawork --handoff=file port the cli to clap 4       # hand off by file (local models)
 ```
+
+**Handoff mode.** By default the orchestrator pastes the scout's report into
+the architect's prompt and types the architect's plan into the plan file. On a
+local model, every pasted token is a generated token, so a long report costs
+minutes and can push a reply past the server's per-reply output cap, which
+ends the run. `--handoff=file` (or a `handoff: file` line in the task) saves
+each subagent's final message straight from its session transcript with
+`skills/ultrawork/scripts/save_subagent_report.py`, and passes **paths**
+between phases instead.
 
 The agents are also usable directly from any session via the task tool
 (`subagent_type: "scout"`, persona `"concise"`, etc.) — `/ultrawork` is
@@ -325,6 +335,13 @@ non-Harmony vLLM model `effort:` does nothing at all.
 - Set `context_window` honestly (32–131k); long ultrawork runs will
   actually reach the 85% compaction line, and recovery depends on the
   saved plan file.
+- Set `max_completion_tokens` too (e.g. `16384`). When Axon sends no
+  output limit, the server's default applies, and some servers default to
+  8192. That limit covers the model's reasoning **plus** the report or plan.
+  Seen on a 27B: reports and plans died at exactly 8192 tokens, reported as
+  `max_tokens_truncation`.
+- Use `--handoff=file` for long tasks, so reports and plans move between
+  phases on disk instead of being re-typed by the orchestrator.
 
 **Small — ≤14B**
 - This class can plan but reliably fumbles exact-match edits and

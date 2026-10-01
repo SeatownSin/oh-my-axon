@@ -59,7 +59,7 @@ if ($Uninstall) {
     Remove-Item -Force $Manifest
     # Children before parents: a directory is only removed when it is empty,
     # so skills\* has to go before skills itself gets a chance.
-    foreach ($d in 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'skills', 'hooks\bin', 'hooks\lib', 'hooks', 'telemetry', 'agents', 'personas') {
+    foreach ($d in 'skills\ultrawork\scripts', 'skills\ultrawork', 'skills\plan', 'skills\handoff', 'skills\audit', 'skills', 'hooks\bin', 'hooks\lib', 'hooks', 'telemetry', 'agents', 'personas') {
         $p = Join-Path $AxonHome $d
         if ((Test-Path $p) -and -not (Get-ChildItem $p)) { Remove-Item $p }
     }

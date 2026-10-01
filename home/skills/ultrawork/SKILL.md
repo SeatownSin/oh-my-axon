@@ -43,6 +43,58 @@ verify the result. All heavy lifting happens in subagents spawned with the
 - `ultrawork` / `ulw` anywhere in a message — the rest of the message is the task.
 - `/ultrawork plan <task>` — run only Phases 1–2, save the plan, stop.
 - `/ultrawork run <path-to-plan.md>` — skip to Phase 3 with an existing plan.
+- `--handoff=file` anywhere in the invocation, or the line `handoff: file` in
+  the task statement, switches every handoff to files (see Handoff mode).
+
+## Handoff mode
+
+Subagents share no memory, so each phase's output has to reach the next one.
+
+- **`paste` (default):** you paste reports and work items into the next
+  subagent's prompt, and you type the architect's plan into the plan file.
+- **`file`:** subagents' outputs go to disk with a script, and the next
+  subagent is given **paths**. Nothing long passes through your own replies.
+
+**Why `file` exists:** every token you paste or type is a token you
+*generate*. On a local model that costs minutes per handoff. Worse, a long
+scout report or plan can push one of your replies past the server's
+per-reply output cap. Axon reports that as `max_tokens_truncation`, and if it
+happens in your own turn the whole run ends. Use `file` for local models, for
+long tasks, and whenever a run has already died that way.
+
+**The tool:** `scripts/save_subagent_report.py`, next to this SKILL.md.
+
+    python3 <this skill's directory>/scripts/save_subagent_report.py <subagent_id> <out.md>
+
+- Use `python` if that is the interpreter's name on this machine.
+- It copies the subagent's **final message** verbatim from its session
+  transcript on disk and prints one line: `OK: <n> lines …` or `ERROR: …`.
+- Running it is allowed under iron rule 1. It neither reads source nor edits
+  it, and the plan file it writes is the rule's existing exception.
+
+**What changes in `file` mode** (everything else in the pipeline stays the
+same):
+
+- **Phase 1:** when the scout finishes, save its report to
+  `.axon/findings/<yyyy-mm-dd>-<slug>-scout.md`. Don't keep the report in
+  your context. If the task already names a saved recon file, skip the scout.
+- **Phase 2:**
+  - The architect's prompt is the task statement (or the task file's path)
+    plus the scout report's **path**.
+  - Tell the architect its final message is saved verbatim as the plan. So it
+    must be only the plan markdown: no preamble, no code fences, no closing
+    summary. Ask for a compact plan, roughly 12 items or fewer and 15 lines or
+    fewer per item.
+  - Save it with the tool to `.axon/plans/<yyyy-mm-dd>-<slug>.md`, instead of
+    typing it. Then read only its headings (e.g. `Select-String '^#'` or
+    `grep '^#'`) to learn the item list.
+- **Phase 3:** each executor's prompt is the plan **path** and its item
+  number, plus the global-context line and the findings-file line. The
+  executor reads its own item from the plan.
+- **Phase 4:** the reviewer gets the plan path instead of its contents.
+- **If the tool prints `ERROR`:** the subagent left no final text, so treat it
+  as a failed subagent (respawn rules below). Never type the missing report
+  yourself.
 
 ## Phase 0 — Scope (you, no subagents)
 
@@ -76,6 +128,8 @@ Spawn one architect:
 - `subagent_type`: `"architect"`
 - `description`: `"Plan: <topic>"`
 - `prompt`: the task statement + the scout report(s), pasted in full.
+  (`file` mode: the report's path instead, and see Handoff mode for how the
+  plan comes back.)
 
 Save the returned plan to `.axon/plans/<yyyy-mm-dd>-<slug>.md` in the repo
 **immediately — this is not optional and not deferrable** (create the
@@ -116,6 +170,7 @@ Work through the plan's work items with executors:
   <total> of a plan to <goal>."), plus one line naming the run's findings
   file ("Read <path> before you start; append what you establish before you
   finish."). Nothing else - executors must not receive the whole plan.
+  (`file` mode: the plan path and the item number instead of the pasted item.)
 
   That one line is the whole cross-item channel. The executor does the
   reading and appending itself, so this costs you no context and you never
@@ -139,7 +194,7 @@ Spawn one reviewer:
 - `subagent_type`: `"reviewer"`
 - `persona`: `"thorough"`
 - `description`: `"Review: <topic>"`
-- `prompt`: the plan file contents + the list of files changed (from
+- `prompt`: the plan file contents (`file` mode: its path) + the list of files changed (from
   `git status`/`git diff --stat` — run these yourself and paste the output).
 
 Then:
@@ -176,6 +231,11 @@ possible prompts, never parallel.
   item (split it, or reduce it to the smallest change that satisfies its
   acceptance) and try one final executor — never absorb the work into your
   own session.
+- A subagent or your own turn failing with `max_tokens_truncation` means a
+  reply outgrew the server's per-reply output cap. A sharper prompt rarely
+  fixes it. Switch to `file` handoff mode, and tell the user the cap may need
+  raising (`max_completion_tokens` on the model in `config.toml`; some
+  servers default to 8192 when it is unset).
 - Watch your own context. Skim subagent reports, keep only their headline
   facts in play, and lean on the plan file instead of re-pasting earlier
   phases. An orchestrator that triggers compaction has already failed —

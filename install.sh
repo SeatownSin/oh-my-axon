@@ -29,7 +29,7 @@ uninstall() {
     # Prune now-empty directories we may have created (ignore failures).
     # Children before parents: rmdir only removes empty directories, so
     # skills/* has to go before skills itself gets a chance.
-    for d in skills/ultrawork skills/plan skills/handoff skills/audit skills hooks/bin hooks/lib hooks telemetry agents personas; do
+    for d in skills/ultrawork/scripts skills/ultrawork skills/plan skills/handoff skills/audit skills hooks/bin hooks/lib hooks telemetry agents personas; do
         rmdir "$AXON_HOME/$d" 2>/dev/null || true
     done
     echo "oh-my-axon: removed from $AXON_HOME."

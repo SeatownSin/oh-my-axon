@@ -342,6 +342,10 @@ non-Harmony vLLM model `effort:` does nothing at all.
   `max_tokens_truncation`.
 - Use `--handoff=file` for long tasks, so reports and plans move between
   phases on disk instead of being re-typed by the orchestrator.
+- Keep task files from asking the architect to copy long blocks (rules,
+  rubrics, templates) into every work item. The whole plan has to fit in one
+  capped reply, so items should point to sections, not paste them. See
+  "Compact plans" in the skill.
 
 **Small — ≤14B**
 - This class can plan but reliably fumbles exact-match edits and

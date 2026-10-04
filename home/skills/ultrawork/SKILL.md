@@ -83,8 +83,8 @@ same):
     plus the scout report's **path**.
   - Tell the architect its final message is saved verbatim as the plan. So it
     must be only the plan markdown: no preamble, no code fences, no closing
-    summary. Ask for a compact plan, roughly 12 items or fewer and 15 lines or
-    fewer per item.
+    summary. It must also be a **compact plan** (see Compact plans under Phase
+    2), because one capped reply has to hold all of it.
   - Save it with the tool to `.axon/plans/<yyyy-mm-dd>-<slug>.md`, instead of
     typing it. Then read only its headings (e.g. `Select-String '^#'` or
     `grep '^#'`) to learn the item list.
@@ -130,6 +130,30 @@ Spawn one architect:
 - `prompt`: the task statement + the scout report(s), pasted in full.
   (`file` mode: the report's path instead, and see Handoff mode for how the
   plan comes back.)
+
+### Compact plans
+
+The whole plan comes out of the architect's **single final reply**, and that
+reply is capped by the server's per-reply output limit, **reasoning
+included**. A plan that copies long blocks into every item overflows it: the
+architect dies with `max_tokens_truncation` and no plan exists. Seen in
+practice: a 24k-token prompt and an 8-item plan that copied a creative-rules
+block into each item hit exactly the 16,384 cap. Put these in the architect's
+prompt:
+
+- **Point, don't copy.** Items name the section of the task file or brief to
+  read ("read the Creative rules section of `<task file>`"). They don't paste
+  rules, rubrics, templates or examples.
+- **Say shared rules once.** Rules every item follows go in one short "Global
+  context" section at the top, not in each item.
+- **Size:** about 12 items or fewer, and about 10–15 lines or fewer per item:
+  the goal, inputs (paths), output (path), and one acceptance check that can
+  fail.
+- **Reason briefly and write the plan once.**
+
+If the architect truncates anyway, a sharper prompt alone rarely helps. Remove
+whatever the task tells it to copy, or write the plan file yourself in a few
+short parts (the plan file is the existing exception to iron rule 1).
 
 Save the returned plan to `.axon/plans/<yyyy-mm-dd>-<slug>.md` in the repo
 **immediately — this is not optional and not deferrable** (create the
@@ -236,6 +260,16 @@ possible prompts, never parallel.
   fixes it. Switch to `file` handoff mode, and tell the user the cap may need
   raising (`max_completion_tokens` on the model in `config.toml`; some
   servers default to 8192 when it is unset).
+  - **Don't read the cap off the failure's token counts.** The usage figures
+    in a failed subagent's error leave out the truncated call, so they show
+    only its earlier small replies. A "~800-token cap" read from them is
+    wrong. The real cap is `max_completion_tokens`, or the server's request
+    log (its finish reason and completion tokens for that request). Planning
+    around an imagined tiny cap splits the work into needlessly slow pieces.
+  - **Some items fail because their output is one long piece:** a whole
+    document, or arithmetic reasoned out in prose. Tell the executor to
+    compute numbers with a script, and to write long documents in sections
+    across several replies, not in one.
 - Watch your own context. Skim subagent reports, keep only their headline
   facts in play, and lean on the plan file instead of re-pasting earlier
   phases. An orchestrator that triggers compaction has already failed —
